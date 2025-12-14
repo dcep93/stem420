@@ -17,7 +17,7 @@ SA_KEY="$1"
 # cat gac.json
 # echo; echo; echo
 
-cd app
+cd frontend/app
 
 export GOOGLE_APPLICATION_CREDENTIALS="gac.json"
 echo "$SA_KEY" > "$GOOGLE_APPLICATION_CREDENTIALS"

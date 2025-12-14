@@ -4,7 +4,7 @@ set -euo pipefail
 
 # npm create vite@latest app -- --template react-ts
 
-cd app
+cd frontend/app
 npm install
 yarn build
 rm -rf node_modules
