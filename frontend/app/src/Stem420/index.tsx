@@ -1,23 +1,16 @@
+import CryptoJS from "crypto-js";
 import { useState } from "react";
 import recorded_sha from "./recorded_sha";
 
 const BUCKET_NAME = "stem420-bucket";
 
-function toHex(buffer: ArrayBuffer) {
-  return Array.from(new Uint8Array(buffer))
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function computeSha256(file: File) {
-  const functionName = "computeSha256";
+async function computeMd5(file: File) {
+  const functionName = "computeMd5";
 
   try {
-    const hash = await crypto.subtle.digest(
-      "SHA-256",
-      await file.arrayBuffer()
-    );
-    return toHex(hash);
+    const arrayBuffer = await file.arrayBuffer();
+    const wordArray = CryptoJS.lib.WordArray.create(arrayBuffer);
+    return CryptoJS.MD5(wordArray).toString(CryptoJS.enc.Hex);
   } catch (error) {
     throw new Error(formatErrorMessage(functionName, error));
   }
@@ -53,10 +46,10 @@ export default function Stem420() {
     };
 
     try {
-      recordStep("Constructing SHA-256 checksum");
-      const sha256Hash = await computeSha256(file);
+      recordStep("Constructing MD5 checksum");
+      const md5Hash = await computeMd5(file);
       recordStep("Checking for existing file in GCS");
-      const objectPath = `_stem420/${sha256Hash}/input/${file.name}`;
+      const objectPath = `_stem420/${md5Hash}/input/${file.name}`;
       const encodedPath = encodeURIComponent(objectPath);
       const metadataUrl = `https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o/${encodedPath}`;
 
