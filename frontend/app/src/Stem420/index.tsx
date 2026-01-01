@@ -3,7 +3,12 @@ import { useEffect, useState } from "react";
 import ObjectTreeView from "./components/ObjectTreeView";
 import UploadControls from "./components/UploadControls";
 import { formatErrorMessage } from "./errors";
-import { BUCKET_NAME, computeMd5, listBucketObjects } from "./gcsClient";
+import {
+  BUCKET_NAME,
+  computeMd5,
+  fetchObjectContents,
+  listBucketObjects,
+} from "./gcsClient";
 import { buildObjectTree } from "./objectTree";
 import sha from "./sha.json";
 import { type GcsObject, type ObjectTreeNode } from "./types";
@@ -182,7 +187,28 @@ export default function Stem420() {
       return;
     }
 
-    if (!object.name.toLowerCase().endsWith(".mp3")) {
+    const lowercaseName = object.name.toLowerCase();
+
+    if (lowercaseName.endsWith(".json")) {
+      try {
+        const contents = await fetchObjectContents(object.path);
+        let parsedContents: unknown = contents;
+
+        try {
+          parsedContents = JSON.parse(contents);
+        } catch {
+          parsedContents = contents;
+        }
+
+        alert(JSON.stringify(parsedContents, null, 2));
+      } catch (error) {
+        console.error(formatErrorMessage(functionName, error), error);
+      }
+
+      return;
+    }
+
+    if (!lowercaseName.endsWith(".mp3")) {
       return;
     }
 

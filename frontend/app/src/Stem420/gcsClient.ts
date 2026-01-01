@@ -85,3 +85,23 @@ export async function listBucketObjects(): Promise<GcsObject[]> {
     throw new Error(formatErrorMessage(functionName, error));
   }
 }
+
+export async function fetchObjectContents(objectPath: string): Promise<string> {
+  const functionName = "fetchObjectContents";
+
+  try {
+    const encodedName = encodeURIComponent(objectPath);
+    const downloadUrl = `https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o/${encodedName}?alt=media`;
+    const response = await fetch(downloadUrl);
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch object: ${response.status} ${response.statusText}`
+      );
+    }
+
+    return await response.text();
+  } catch (error) {
+    throw new Error(formatErrorMessage(functionName, error));
+  }
+}

@@ -25,12 +25,15 @@ export default function ObjectTreeView({
         const isFolder = node.type === "folder";
         const isMp3File =
           node.type === "file" && node.name.toLowerCase().endsWith(".mp3");
+        const isJsonFile =
+          node.type === "file" && node.name.toLowerCase().endsWith(".json");
+        const isClickableFile = isMp3File || isJsonFile;
 
         return (
           <li key={node.path}>
             {isFolder ? (
               <code>{node.name}/</code>
-            ) : isMp3File ? (
+            ) : isClickableFile ? (
               <button
                 type="button"
                 onClick={() => void onFileClick(node)}

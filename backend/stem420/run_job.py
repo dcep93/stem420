@@ -1,6 +1,8 @@
+import json
 import os
 import shutil
 import threading
+import time
 import traceback
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -138,10 +140,20 @@ def _upload_directory(client: storage.Client, directory: Path, gcs_path: str) ->
     _STATE.log("run_job.upload.done")
 
 
+def _write_metadata(output_dir: Path, duration_s: float) -> Path:
+    metadata_path = output_dir / "metadata.json"
+    metadata = {"duration_s": duration_s}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(json.dumps(metadata))
+    _STATE.log(f"run_job.metadata.written path={metadata_path} duration_s={duration_s}")
+    return metadata_path
+
+
 def _process_request(request: Request) -> None:
     _STATE.log(
         f"run_job.process.start mp3_path={request.mp3_path} output_path={request.output_path}"
     )
+    start_time = time.perf_counter()
     try:
         client = storage.Client()
         with TemporaryDirectory() as tmp_dir:
@@ -150,6 +162,8 @@ def _process_request(request: Request) -> None:
             _download_mp3(client, request.mp3_path, mp3_path)
             demucs_output_dir = tmp_dir_path / "demucs_output"
             _run_demucs(mp3_path, demucs_output_dir)
+            duration_s = time.perf_counter() - start_time
+            _write_metadata(demucs_output_dir, duration_s)
 
             # demucs output is typically nested, upload all generated stems
             _upload_directory(client, demucs_output_dir, request.output_path)
