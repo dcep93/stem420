@@ -32,6 +32,11 @@ GOOGLE_CLOUD_PROJECT="$(jq -r .project_id < "$GOOGLE_APPLICATION_CREDENTIALS")"
 
 cd backend
 
+docker buildx build \
+    --cache-to=type=local,dest=/tmp/github-cache/backend \
+    --cache-from=type=local,src=/tmp/github-cache/backend \
+    .
+
 ARGS=mypy make dockerexecnotty
 
 echo 'ENTRYPOINT [ "make", "server" ]' >>Dockerfile
