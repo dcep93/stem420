@@ -1,4 +1,5 @@
 import json
+import os
 import time
 import traceback
 import typing
@@ -21,7 +22,12 @@ class Vars:
 
 
 def init() -> None:
-    with open("./sha.json") as fh:
+    with open(
+        os.path.join(
+            os.path.dirname(__file__),
+            "sha.json",
+        )
+    ) as fh:
         Vars.sha = json.load(fh)
 
     Vars.manager = run_job.Manager(
