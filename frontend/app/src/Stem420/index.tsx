@@ -133,7 +133,9 @@ export default function Stem420() {
     try {
       recordStep("Fetching object list");
       const objectsToDelete = await listBucketObjects();
-      const objectNames = objectsToDelete.map((object) => object.name);
+      const objectNames = objectsToDelete
+        .filter((object) => object.type === "file")
+        .map((object) => object.name);
 
       if (objectNames.length === 0) {
         recordStep("Bucket is already empty");
