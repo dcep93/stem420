@@ -16,6 +16,6 @@ ENV PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu"
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN apt install ffmpeg
+RUN apt install -y ffmpeg
 
 COPY . ./
