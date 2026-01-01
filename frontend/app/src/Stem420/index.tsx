@@ -1,8 +1,13 @@
 import CryptoJS from "crypto-js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import recorded_sha from "./recorded_sha";
 
 const BUCKET_NAME = "stem420-bucket";
+
+type GcsObject = {
+  name: string;
+  size: number;
+};
 
 async function computeMd5(file: File) {
   const functionName = "computeMd5";
@@ -21,10 +26,58 @@ function formatErrorMessage(functionName: string, error: unknown) {
   return `[${functionName}] ${message}`;
 }
 
+async function listBucketObjects(): Promise<GcsObject[]> {
+  const functionName = "listBucketObjects";
+
+  try {
+    let pageToken: string | undefined;
+    const objects: GcsObject[] = [];
+
+    do {
+      const listUrl = new URL(
+        `https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o`
+      );
+
+      if (pageToken) {
+        listUrl.searchParams.set("pageToken", pageToken);
+      }
+
+      const listResponse = await fetch(listUrl.toString());
+
+      if (!listResponse.ok) {
+        throw new Error(
+          `Failed to list objects: ${listResponse.status} ${listResponse.statusText}`
+        );
+      }
+
+      const listData = (await listResponse.json()) as {
+        items?: { name: string; size?: string }[];
+        nextPageToken?: string;
+      };
+
+      const items = listData.items ?? [];
+      const parsedObjects = items.map((item) => ({
+        name: item.name,
+        size: Number(item.size ?? 0),
+      }));
+
+      objects.push(...parsedObjects);
+      pageToken = listData.nextPageToken;
+    } while (pageToken);
+
+    return objects;
+  } catch (error) {
+    throw new Error(formatErrorMessage(functionName, error));
+  }
+}
+
 export default function Stem420() {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isListing, setIsListing] = useState(false);
+  const [objects, setObjects] = useState<GcsObject[]>([]);
+  const [listError, setListError] = useState<string | null>(null);
 
   const isBusy = isUploading || isDeleting;
 
@@ -90,6 +143,7 @@ export default function Stem420() {
 
       recordStep("Upload complete");
 
+      await refreshObjectList();
       alert(steps.join(", "));
     } catch (error) {
       const formattedMessage = formatErrorMessage(functionName, error);
@@ -121,35 +175,8 @@ export default function Stem420() {
 
     try {
       recordStep("Fetching object list");
-      let pageToken: string | undefined;
-      const objectNames: string[] = [];
-
-      do {
-        const listUrl = new URL(
-          `https://storage.googleapis.com/storage/v1/b/${BUCKET_NAME}/o`
-        );
-
-        if (pageToken) {
-          listUrl.searchParams.set("pageToken", pageToken);
-        }
-
-        const listResponse = await fetch(listUrl.toString());
-
-        if (!listResponse.ok) {
-          throw new Error(
-            `Failed to list objects: ${listResponse.status} ${listResponse.statusText}`
-          );
-        }
-
-        const listData = (await listResponse.json()) as {
-          items?: { name: string }[];
-          nextPageToken?: string;
-        };
-
-        const names = listData.items?.map((item) => item.name) ?? [];
-        objectNames.push(...names);
-        pageToken = listData.nextPageToken;
-      } while (pageToken);
+      const objectsToDelete = await listBucketObjects();
+      const objectNames = objectsToDelete.map((object) => object.name);
 
       if (objectNames.length === 0) {
         recordStep("Bucket is already empty");
@@ -172,6 +199,7 @@ export default function Stem420() {
       }
 
       recordStep("Deletion complete");
+      setObjects([]);
       alert(steps.join(", "));
     } catch (error) {
       const formattedMessage = formatErrorMessage(functionName, error);
@@ -187,9 +215,52 @@ export default function Stem420() {
     }
   };
 
+  const refreshObjectList = async () => {
+    const functionName = "refreshObjectList";
+
+    setIsListing(true);
+    setListError(null);
+
+    try {
+      const listedObjects = await listBucketObjects();
+      setObjects(listedObjects);
+    } catch (error) {
+      const formattedMessage = formatErrorMessage(functionName, error);
+      setListError(formattedMessage);
+      console.error(formattedMessage, error);
+    } finally {
+      setIsListing(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshObjectList();
+  }, []);
+
   return (
     <div>
       <div>testing123 {recorded_sha}</div>
+      <div style={{ marginTop: "1rem" }}>
+        <h2>GCS Bucket Contents</h2>
+        <button onClick={refreshObjectList} disabled={isBusy || isListing}>
+          {isListing ? "Refreshing..." : "Refresh List"}
+        </button>
+        {listError && (
+          <div style={{ color: "red", marginTop: "0.5rem" }}>{listError}</div>
+        )}
+        {!listError && objects.length === 0 && !isListing ? (
+          <div style={{ marginTop: "0.5rem" }}>No files found in bucket.</div>
+        ) : null}
+        {objects.length > 0 ? (
+          <ul style={{ marginTop: "0.5rem" }}>
+            {objects.map((object) => (
+              <li key={object.name}>
+                <code>{object.name}</code> — {object.size.toLocaleString()} bytes
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       <div style={{ marginTop: "1rem" }}>
         <input type="file" onChange={handleFileChange} disabled={isBusy} />
         <button
