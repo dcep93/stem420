@@ -7,7 +7,7 @@ type ObjectTreeViewProps = {
   objectTree: ObjectTreeNode[];
   totalObjects: number;
   onRefresh: () => void;
-  onFolderClick: (node: ObjectTreeNode) => Promise<void> | void;
+  onFileClick: (node: ObjectTreeNode) => Promise<void> | void;
 };
 
 export default function ObjectTreeView({
@@ -17,35 +17,35 @@ export default function ObjectTreeView({
   objectTree,
   totalObjects,
   onRefresh,
-  onFolderClick,
+  onFileClick,
 }: ObjectTreeViewProps) {
   const renderObjects = (nodes: ObjectTreeNode[]) => (
     <ul style={{ marginTop: "0.5rem" }}>
       {nodes.map((node) => {
         const isFolder = node.type === "folder";
-        const isInputFolder = isFolder && node.name === "input";
+        const isMp3File =
+          node.type === "file" && node.name.toLowerCase().endsWith(".mp3");
 
         return (
           <li key={node.path}>
             {isFolder ? (
-              isInputFolder ? (
-                <button
-                  type="button"
-                  onClick={() => void onFolderClick(node)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    color: "blue",
-                    textDecoration: "underline",
-                    cursor: "pointer",
-                  }}
-                >
-                  <code>{node.name}/</code>
-                </button>
-              ) : (
-                <code>{node.name}/</code>
-              )
+              <code>{node.name}/</code>
+            ) : isMp3File ? (
+              <button
+                type="button"
+                onClick={() => void onFileClick(node)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "blue",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+                disabled={isBusy}
+              >
+                <code>{node.name}</code>
+              </button>
             ) : (
               <>
                 <code>{node.name}</code> — {node.size?.toLocaleString()} bytes

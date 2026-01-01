@@ -173,16 +173,25 @@ export default function Stem420() {
     }
   };
 
-  const handleFolderClick = async (object: ObjectTreeNode) => {
-    const functionName = "handleFolderClick";
+  const handleFileClick = async (object: ObjectTreeNode) => {
+    const functionName = "handleFileClick";
 
-    if (object.type !== "folder") {
+    if (object.type !== "file") {
       return;
     }
 
-    const folderName = object.name;
+    if (!object.name.toLowerCase().endsWith(".mp3")) {
+      return;
+    }
 
-    if (folderName !== "input") {
+    const mp3Path = `gs://${BUCKET_NAME}/${object.path}`;
+    const outputPath = mp3Path.replace(/\/input\/[^/]+$/, "/output/");
+
+    if (outputPath === mp3Path) {
+      console.error(
+        formatErrorMessage(functionName, "Unable to determine output path"),
+        mp3Path
+      );
       return;
     }
 
@@ -194,7 +203,7 @@ export default function Stem420() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ path: object.path }),
+          body: JSON.stringify({ mp3_path: mp3Path, output_path: outputPath }),
         }
       );
 
@@ -233,7 +242,7 @@ export default function Stem420() {
         objectTree={objectTree}
         totalObjects={objects.length}
         onRefresh={refreshObjectList}
-        onFolderClick={handleFolderClick}
+        onFileClick={handleFileClick}
       />
       <UploadControls
         isBusy={isBusy}
