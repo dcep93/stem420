@@ -3,13 +3,13 @@
 set -euo pipefail
 
 # # requires billing!
-# # create a new project every 3 months once trial expires
 # set -e
-# nvm install 16.4.0
 # gcloud services enable compute
 # gcloud services enable cloudbuild.googleapis.com
 # gcloud services enable run.googleapis.com
-# IAM=deployer-github
+# IAM=deployer-github-stem420
+# gcloud iam service-accounts create $IAM
+# sleep 1
 # gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" --member="serviceAccount:$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com" --role="roles/run.admin"
 # gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" --member="serviceAccount:$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com" --role="roles/iam.serviceAccountUser"
 # gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" --member="serviceAccount:$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com" --role="roles/cloudbuild.builds.editor"
@@ -17,8 +17,8 @@ set -euo pipefail
 # gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" --member="serviceAccount:$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com" --role="roles/storage.objectViewer"
 # gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" --member="serviceAccount:$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com" --role="roles/editor"
 # gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" --member="serviceAccount:$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com" --role="roles/viewer"
-# gcloud iam service-accounts keys create gac.json --iam-account "$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com"
-# cat gac.json
+# gcloud iam service-accounts keys create stem420_gac.json --iam-account "$IAM@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com"
+# cat stem420_gac.json
 
 SA_KEY="$1"
 
