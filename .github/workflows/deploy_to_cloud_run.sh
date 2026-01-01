@@ -30,7 +30,7 @@ npm install google-auth-library
 gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
 GOOGLE_CLOUD_PROJECT="$(jq -r .project_id < "$GOOGLE_APPLICATION_CREDENTIALS")"
 
-cd ../../backend
+cd backend
 
 ARGS=mypy make dockerexecnotty
 
