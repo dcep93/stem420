@@ -64,6 +64,12 @@ export default function Player({ record, onClose }: PlayerProps) {
   >({});
   const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
   const animationFrameRef = useRef<number | null>(null);
+  const syncAnimationFrameRef = useRef<number | null>(null);
+  const suppressSyncUntilRef = useRef<number>(0);
+  const seekingRef = useRef(false);
+  const isPlayingRef = useRef(false);
+  const isDraggingSeekRef = useRef(false);
+  const pendingSeekRef = useRef<number | null>(null);
 
   const tracks = useMemo<Track[]>(() => {
     return record.files
@@ -120,6 +126,10 @@ export default function Player({ record, onClose }: PlayerProps) {
     return () => {
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      if (syncAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(syncAnimationFrameRef.current);
       }
 
       Object.values(audioContextsSnapshot).forEach((context) => {
@@ -252,20 +262,6 @@ export default function Player({ record, onClose }: PlayerProps) {
       return;
     }
 
-    const handleTimeUpdate = () => {
-      setCurrentTime(primaryAudio.currentTime);
-
-      Object.entries(audioRefs.current).forEach(([id, audio]) => {
-        if (!audio || id === primaryTrackId) {
-          return;
-        }
-
-        if (Math.abs(audio.currentTime - primaryAudio.currentTime) > 0.01) {
-          audio.currentTime = primaryAudio.currentTime;
-        }
-      });
-    };
-
     const handleLoadedMetadata = () => {
       durationMap.current[primaryTrackId] = primaryAudio.duration;
       setTrackDurations((previous) => ({
@@ -284,12 +280,10 @@ export default function Player({ record, onClose }: PlayerProps) {
       setIsPlaying(false);
     };
 
-    primaryAudio.addEventListener("timeupdate", handleTimeUpdate);
     primaryAudio.addEventListener("loadedmetadata", handleLoadedMetadata);
     primaryAudio.addEventListener("ended", handleEnded);
 
     return () => {
-      primaryAudio.removeEventListener("timeupdate", handleTimeUpdate);
       primaryAudio.removeEventListener("loadedmetadata", handleLoadedMetadata);
       primaryAudio.removeEventListener("ended", handleEnded);
     };
@@ -325,6 +319,132 @@ export default function Player({ record, onClose }: PlayerProps) {
       cleanups.forEach((cleanup) => cleanup && cleanup());
     };
   }, [tracks]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+
+    if (!isPlaying) {
+      Object.values(audioRefs.current).forEach((audio) => {
+        if (audio) {
+          audio.playbackRate = 1;
+        }
+      });
+    }
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (!primaryTrackId) {
+      return undefined;
+    }
+
+    const syncTracks = () => {
+      const primaryAudio = audioRefs.current[primaryTrackId];
+
+      if (!primaryAudio) {
+        syncAnimationFrameRef.current = null;
+        return;
+      }
+
+      setCurrentTime(primaryAudio.currentTime);
+
+      const now = performance.now();
+      const suppressSync = seekingRef.current || now < suppressSyncUntilRef.current;
+
+      Object.entries(audioRefs.current).forEach(([id, audio]) => {
+        if (!audio || id === primaryTrackId) {
+          return;
+        }
+
+        const drift = audio.currentTime - primaryAudio.currentTime;
+        const absDrift = Math.abs(drift);
+
+        if (!isPlayingRef.current || suppressSync) {
+          audio.playbackRate = 1;
+          return;
+        }
+
+        if (absDrift > 0.05) {
+          audio.currentTime = primaryAudio.currentTime;
+          audio.playbackRate = 1;
+          return;
+        }
+
+        if (absDrift > 0.01) {
+          const ratio = Math.min(absDrift, 0.05) / 0.05;
+          const adjustment = ratio * 0.02;
+          const direction = drift > 0 ? -1 : 1;
+          const nextRate = Math.min(
+            1.02,
+            Math.max(0.98, 1 + direction * adjustment)
+          );
+
+          audio.playbackRate = nextRate;
+          return;
+        }
+
+        audio.playbackRate = 1;
+      });
+
+      syncAnimationFrameRef.current = requestAnimationFrame(syncTracks);
+    };
+
+    if (isPlaying) {
+      syncAnimationFrameRef.current = requestAnimationFrame(syncTracks);
+    } else if (syncAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(syncAnimationFrameRef.current);
+      syncAnimationFrameRef.current = null;
+    }
+
+    return () => {
+      if (syncAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(syncAnimationFrameRef.current);
+        syncAnimationFrameRef.current = null;
+      }
+    };
+  }, [isPlaying, primaryTrackId, tracks]);
+
+  useEffect(() => {
+    const cleanups = tracks.map((track) => {
+      if (track.id === primaryTrackId) {
+        return undefined;
+      }
+
+      const audio = audioRefs.current[track.id];
+
+      if (!audio) {
+        return undefined;
+      }
+
+      const handleRecovery = () => {
+        const primaryAudio = primaryTrackId
+          ? audioRefs.current[primaryTrackId]
+          : null;
+
+        if (!primaryAudio || !isPlayingRef.current) {
+          return;
+        }
+
+        const drift = audio.currentTime - primaryAudio.currentTime;
+
+        if (Math.abs(drift) > 0.03) {
+          audio.currentTime = primaryAudio.currentTime;
+          audio.playbackRate = 1;
+        }
+      };
+
+      audio.addEventListener("playing", handleRecovery);
+      audio.addEventListener("canplay", handleRecovery);
+
+      return () => {
+        audio.removeEventListener("playing", handleRecovery);
+        audio.removeEventListener("canplay", handleRecovery);
+      };
+    });
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup && cleanup());
+    };
+  }, [primaryTrackId, tracks]);
 
   useEffect(() => {
     const activeIds = new Set(tracks.map((track) => track.id));
@@ -864,20 +984,134 @@ export default function Player({ record, onClose }: PlayerProps) {
     };
   }, [tracks]);
 
-  const updateAllCurrentTime = (newTime: number) => {
-    Object.values(audioRefs.current).forEach((audio) => {
-      if (!audio) {
+  const commitSeek = useCallback(
+    async (targetTime: number) => {
+      if (!primaryTrackId) {
+        setCurrentTime(targetTime);
         return;
       }
 
-      audio.currentTime = newTime;
-    });
-  };
+      seekingRef.current = true;
+      suppressSyncUntilRef.current = performance.now() + 250;
+      const wasPlaying = isPlayingRef.current;
 
-  const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
+      Object.values(audioRefs.current).forEach((audio) => {
+        if (!audio) {
+          return;
+        }
+
+        audio.pause();
+        audio.playbackRate = 1;
+      });
+
+      const seekPromises = Object.values(audioRefs.current).map((audio) => {
+        if (!audio) {
+          return Promise.resolve();
+        }
+
+        return new Promise<void>((resolve) => {
+          let timeoutId: number | undefined;
+
+          const finalize = () => {
+            if (timeoutId !== undefined) {
+              window.clearTimeout(timeoutId);
+            }
+
+            audio.removeEventListener("seeked", handleSeeked);
+            audio.removeEventListener("error", handleSeeked);
+            resolve();
+          };
+
+          const handleSeeked = () => {
+            finalize();
+          };
+
+          audio.addEventListener("seeked", handleSeeked);
+          audio.addEventListener("error", handleSeeked);
+          timeoutId = window.setTimeout(handleSeeked, 500);
+
+          audio.currentTime = targetTime;
+        });
+      });
+
+      await Promise.all(seekPromises);
+
+      seekingRef.current = false;
+      suppressSyncUntilRef.current = performance.now() + 250;
+
+      const primaryAudio = audioRefs.current[primaryTrackId];
+
+      setCurrentTime(targetTime);
+
+      if (!primaryAudio) {
+        return;
+      }
+
+      if (wasPlaying) {
+        try {
+          await primaryAudio.play();
+        } catch (error) {
+          console.error("Failed to resume primary track after seek", error);
+          setIsPlaying(false);
+          return;
+        }
+
+        const secondaryPromises = Object.entries(audioRefs.current).map(
+          async ([id, audio]) => {
+            if (!audio || id === primaryTrackId) {
+              return;
+            }
+
+            audio.currentTime = primaryAudio.currentTime;
+            audio.playbackRate = 1;
+
+            try {
+              await audio.play();
+            } catch (error) {
+              console.error("Failed to resume track after seek", error);
+            }
+          }
+        );
+
+        await Promise.all(secondaryPromises);
+        setIsPlaying(true);
+      } else {
+        Object.values(audioRefs.current).forEach((audio) => {
+          if (!audio) {
+            return;
+          }
+
+          audio.currentTime = targetTime;
+          audio.playbackRate = 1;
+        });
+      }
+    },
+    [primaryTrackId]
+  );
+
+  const handleSeekChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = Number(event.target.value);
     setCurrentTime(newTime);
-    updateAllCurrentTime(newTime);
+    pendingSeekRef.current = newTime;
+
+    if (!isDraggingSeekRef.current) {
+      void commitSeek(newTime);
+    }
+  };
+
+  const handleSeekStart = () => {
+    isDraggingSeekRef.current = true;
+  };
+
+  const handleSeekEnd = () => {
+    isDraggingSeekRef.current = false;
+    const pending = pendingSeekRef.current;
+
+    if (pending !== null) {
+      void commitSeek(pending);
+    }
+
+    pendingSeekRef.current = null;
   };
 
   const handlePlayPause = async () => {
@@ -994,7 +1228,10 @@ export default function Player({ record, onClose }: PlayerProps) {
           max={duration || 0}
           step={0.1}
           value={Math.min(currentTime, duration || 0)}
-          onChange={handleSeek}
+          onChange={handleSeekChange}
+          onPointerDown={handleSeekStart}
+          onPointerUp={handleSeekEnd}
+          onPointerCancel={handleSeekEnd}
           style={{
             width: "60%",
             marginRight: "0.5rem",
