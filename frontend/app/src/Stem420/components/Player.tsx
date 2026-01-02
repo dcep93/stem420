@@ -208,8 +208,29 @@ export default function Player({ record, onClose }: PlayerProps) {
     setVolumes((previous) => ({ ...previous, [trackId]: value }));
     const audio = audioRefs.current[trackId];
 
-    if (audio) {
-      audio.volume = value;
+    if (!audio) {
+      return;
+    }
+
+    audio.volume = value;
+
+    if (!isPlaying) {
+      return;
+    }
+
+    const primaryAudio = primaryTrackId
+      ? audioRefs.current[primaryTrackId]
+      : null;
+    const referenceTime = primaryAudio?.currentTime ?? currentTime;
+
+    if (Math.abs(audio.currentTime - referenceTime) > 0.01) {
+      audio.currentTime = referenceTime;
+    }
+
+    if (audio.paused) {
+      void audio.play().catch((error) => {
+        console.error("Failed to resume audio after volume change", error);
+      });
     }
   };
 

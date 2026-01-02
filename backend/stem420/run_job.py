@@ -173,23 +173,25 @@ def _force_length_samples(
         )
 
 
-def _encode_flac(input_wav: Path, flac_path: Path) -> None:
+def _encode_mp3(input_wav: Path, mp3_path: Path) -> None:
     result = subprocess.run(
         [
             "ffmpeg",
             "-y",
             "-i",
             str(input_wav),
-            "-compression_level",
-            "8",
-            str(flac_path),
+            "-codec:a",
+            "libmp3lame",
+            "-qscale:a",
+            "2",
+            str(mp3_path),
         ],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         _STATE.log(
-            "run_job.encode_flac.failed "
+            "run_job.encode_mp3.failed "
             f"returncode={result.returncode} stdout={result.stdout!r} "
             f"stderr={result.stderr!r}"
         )
@@ -233,7 +235,7 @@ def _run_demucs(audio_path: Path, output_dir: Path) -> Path:
     return output_dir
 
 
-def _align_and_encode_stems_to_flac(
+def _align_and_encode_stems_to_mp3(
     output_dir: Path, ref_samples: int, ref_sample_rate: int
 ) -> None:
     for stem_file in list(output_dir.iterdir()):
@@ -241,8 +243,8 @@ def _align_and_encode_stems_to_flac(
             continue
         aligned_wav = stem_file.with_name(stem_file.stem + ".aligned.wav")
         _force_length_samples(stem_file, aligned_wav, ref_samples, ref_sample_rate)
-        flac_path = stem_file.with_suffix(".flac")
-        _encode_flac(aligned_wav, flac_path)
+        mp3_path = stem_file.with_suffix(".mp3")
+        _encode_mp3(aligned_wav, mp3_path)
         stem_file.unlink(missing_ok=True)
         aligned_wav.unlink(missing_ok=True)
 
@@ -279,7 +281,7 @@ def _write_metadata(
         "ref_samples": ref_samples,
         "ref_sample_rate": ref_sample_rate,
         "ref_duration_s": ref_samples / ref_sample_rate if ref_sample_rate else 0.0,
-        "aligned_format": "flac",
+        "aligned_format": "mp3",
         "alignment_method": "aresample+apad+atrim end_sample",
     }
     metadata_path.write_text(json.dumps(metadata))
@@ -306,7 +308,7 @@ def _process_request(request: Request) -> None:
 
             demucs_output = tmp / "demucs_output"
             _run_demucs(reference_wav, demucs_output)
-            _align_and_encode_stems_to_flac(demucs_output, ref_samples, ref_sample_rate)
+            _align_and_encode_stems_to_mp3(demucs_output, ref_samples, ref_sample_rate)
 
             duration_s = time.perf_counter() - start_time
             _write_metadata(demucs_output, duration_s, ref_samples, ref_sample_rate)
