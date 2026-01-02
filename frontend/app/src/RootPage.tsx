@@ -19,6 +19,23 @@ type InputOption = {
   md5: string;
 };
 
+const buildInputHash = (label: string) => `#${encodeURIComponent(label)}`;
+
+const parseInputHash = (hash: string): string | null => {
+  const trimmedHash = hash.replace(/^#/, "");
+
+  if (!trimmedHash) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(trimmedHash);
+  } catch (hashError) {
+    console.warn("Failed to decode hash, using raw value.", hashError);
+    return trimmedHash;
+  }
+};
+
 const findMd5Node = (
   nodes: ObjectTreeNode[],
   md5: string
@@ -137,78 +154,127 @@ export default function RootPage() {
     return options.sort((a, b) => a.label.localeCompare(b.label));
   }, [objects]);
 
-  const handleSelection = async (value: string) => {
-    setSelectedInput(value);
-    setActiveRecord(null);
-    setError(null);
+  const loadSelection = useCallback(
+    async (selectedOption: InputOption) => {
+      const md5Node = findMd5Node(objectTree, selectedOption.md5);
 
-    if (!value) {
-      resetStatus();
-      return;
-    }
-
-    const selectedOption = inputOptions.find(
-      (option) => option.value === value
-    );
-
-    if (!selectedOption) {
-      setError("Unable to find the selected input.");
-      return;
-    }
-
-    await loadSelection(selectedOption);
-  };
-
-  const loadSelection = async (selectedOption: InputOption) => {
-    const md5Node = findMd5Node(objectTree, selectedOption.md5);
-
-    if (!md5Node) {
-      setError("No related files were found for this input.");
-      return;
-    }
-
-    setIsFetchingSelection(true);
-    setStatus("Loading files...");
-
-    try {
-      const cachedRecord = await getCachedMd5(selectedOption.md5);
-
-      if (cachedRecord) {
-        setStatus("Loaded cached files.");
-        setActiveRecord(cachedRecord);
+      if (!md5Node) {
+        setError("No related files were found for this input.");
         return;
       }
 
-      const fileNodes = collectFileNodes(md5Node);
+      setIsFetchingSelection(true);
+      setStatus("Loading files...");
 
-      if (!fileNodes.length) {
-        throw new Error("No files were found for the selected input.");
+      try {
+        const cachedRecord = await getCachedMd5(selectedOption.md5);
+
+        if (cachedRecord) {
+          setStatus("Loaded cached files.");
+          setActiveRecord(cachedRecord);
+          return;
+        }
+
+        const fileNodes = collectFileNodes(md5Node);
+
+        if (!fileNodes.length) {
+          throw new Error("No files were found for the selected input.");
+        }
+
+        setStatus("Downloading files from GCS and caching them...");
+
+        const files = await Promise.all(
+          fileNodes.map(async (node) => ({
+            name: node.name,
+            path: node.path,
+            blob: await fetchObjectBlob(node.path),
+          }))
+        );
+
+        await cacheMd5Files(selectedOption.md5, files);
+        setActiveRecord({ md5: selectedOption.md5, files });
+        setStatus(`Fetched ${files.length} file(s) for playback.`);
+      } catch (selectionError) {
+        const formattedMessage = formatErrorMessage(
+          "handleSelection",
+          selectionError
+        );
+        console.error(formattedMessage, selectionError);
+        setError(formattedMessage);
+      } finally {
+        setIsFetchingSelection(false);
+      }
+    },
+    [objectTree]
+  );
+
+  const handleSelection = useCallback(
+    async (value: string, { updateHash } = { updateHash: true }) => {
+      setSelectedInput(value);
+      setActiveRecord(null);
+      setError(null);
+
+      if (!value) {
+        if (updateHash) {
+          window.location.hash = "";
+        }
+
+        resetStatus();
+        return;
       }
 
-      setStatus("Downloading files from GCS and caching them...");
-
-      const files = await Promise.all(
-        fileNodes.map(async (node) => ({
-          name: node.name,
-          path: node.path,
-          blob: await fetchObjectBlob(node.path),
-        }))
+      const selectedOption = inputOptions.find(
+        (option) => option.value === value
       );
 
-      await cacheMd5Files(selectedOption.md5, files);
-      setActiveRecord({ md5: selectedOption.md5, files });
-      setStatus(`Fetched ${files.length} file(s) for playback.`);
-    } catch (selectionError) {
-      const formattedMessage = formatErrorMessage(
-        "handleSelection",
-        selectionError
+      if (!selectedOption) {
+        setError("Unable to find the selected input.");
+        return;
+      }
+
+      if (updateHash) {
+        window.location.hash = buildInputHash(selectedOption.label);
+      }
+
+      await loadSelection(selectedOption);
+    },
+    [inputOptions, loadSelection]
+  );
+
+  useEffect(() => {
+    const applyHashSelection = (hashValue: string) => {
+      const decodedLabel = parseInputHash(hashValue);
+
+      if (!decodedLabel) {
+        if (selectedInput) {
+          void handleSelection("", { updateHash: false });
+        }
+
+        return;
+      }
+
+      const matchingOption = inputOptions.find(
+        (option) => option.label.toLowerCase() === decodedLabel.toLowerCase()
       );
-      console.error(formattedMessage, selectionError);
-      setError(formattedMessage);
-    } finally {
-      setIsFetchingSelection(false);
-    }
-  };
+
+      if (!matchingOption || matchingOption.value === selectedInput) {
+        return;
+      }
+
+      void handleSelection(matchingOption.value, { updateHash: false });
+    };
+
+    const handleHashChange = () => {
+      applyHashSelection(window.location.hash);
+    };
+
+    applyHashSelection(window.location.hash);
+    window.addEventListener("hashchange", handleHashChange);
+
+    return () => {
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  }, [handleSelection, inputOptions, selectedInput]);
 
   const handleRefresh = async () => {
     await refreshObjectTree("Refreshing bucket contents...");
