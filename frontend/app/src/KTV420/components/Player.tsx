@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 
+import { removeCachedOutputs } from "../indexedDbClient";
 import { TrackRow } from "./player/TrackRow";
 import {
   AMPLITUDE_WINDOW_SECONDS,
@@ -16,7 +17,6 @@ import {
   type VisualizerType,
 } from "./player/types";
 import { drawVisualizer } from "./player/visualizers";
-import { removeCachedOutputs } from "../indexedDbClient";
 
 const visualizerOptions: Array<{
   value: VisualizerType;
@@ -36,7 +36,11 @@ const visualizerOptions: Array<{
   { value: "pulse-grid", label: "Pulse Grid", hint: "Energy Matrix" },
   { value: "luminous-orbit", label: "Luminous Orbit", hint: "Layered Rings" },
   { value: "prism-bloom", label: "Prism Bloom", hint: "Radiant Arcs" },
-  { value: "cascade-horizon", label: "Cascade Horizon", hint: "Layered Terrain" },
+  {
+    value: "cascade-horizon",
+    label: "Cascade Horizon",
+    hint: "Layered Terrain",
+  },
   { value: "nebula-trails", label: "Nebula Trails", hint: "Shimmering Path" },
   { value: "echo-lantern", label: "Echo Lantern", hint: "Glowing Ripples" },
   { value: "ember-mandala", label: "Ember Mandala", hint: "Radiant Petals" },
@@ -46,8 +50,16 @@ const visualizerOptions: Array<{
   { value: "solstice-waves", label: "Solstice Waves", hint: "Solar Horizon" },
   { value: "ripple-weave", label: "Ripple Weave", hint: "Braided Ribbons" },
   { value: "ectoplasm", label: "Ectoplasm", hint: "Plasma Bloom" },
-  { value: "super-time-ribbon", label: "Super Time Ribbon", hint: "Shaking Ribbon" },
-  { value: "prismatic-turbine", label: "Prismatic Turbine", hint: "Whirling Shards" },
+  {
+    value: "super-time-ribbon",
+    label: "Super Time Ribbon",
+    hint: "Shaking Ribbon",
+  },
+  {
+    value: "prismatic-turbine",
+    label: "Prismatic Turbine",
+    hint: "Whirling Shards",
+  },
   { value: "kaleidoscope", label: "Kaleidoscope", hint: "Mirrored Lenses" },
   { value: "highway", label: "Highway", hint: "Retro Neon Run" },
   { value: "delay-pedal", label: "Delay Pedal", hint: "Echo Ripples" },
@@ -278,27 +290,21 @@ export default function Player({ record, onClose }: PlayerProps) {
         Math.max(0, position ?? wahPositionsRef.current[trackId] ?? 0.5)
       );
       const offsetFromCenter = normalized - 0.5;
-
-      if (Math.abs(offsetFromCenter) < 0.01) {
-        filterNode.type = "allpass";
-        filterNode.frequency.setTargetAtTime(1200, context.currentTime, 0.01);
-        filterNode.Q.setTargetAtTime(0.0001, context.currentTime, 0.01);
-        return;
-      }
-
-      filterNode.type = "bandpass";
-      const minFrequency = 250;
-      const maxFrequency = 3500;
+      const minFrequency = 300;
+      const maxFrequency = 3200;
       const frequency =
-        minFrequency + normalized * (maxFrequency - minFrequency);
-      const resonance = 1 + Math.abs(offsetFromCenter) * 18;
+        minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
+      const resonance = 0.8 + Math.abs(offsetFromCenter) * 5;
+      const gainDb = 6 + Math.abs(offsetFromCenter) * 6;
 
+      filterNode.type = "peaking";
       filterNode.frequency.setTargetAtTime(
         frequency,
         context.currentTime,
         0.01
       );
       filterNode.Q.setTargetAtTime(resonance, context.currentTime, 0.01);
+      filterNode.gain.setTargetAtTime(gainDb, context.currentTime, 0.01);
     },
     [ensureAudioContext]
   );
@@ -339,13 +345,12 @@ export default function Player({ record, onClose }: PlayerProps) {
   }, [stopAllSources]);
 
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
     const initialVolumes: Record<string, number> = {};
     const initialMuteStates: Record<string, boolean> = {};
     const initialDeafenStates: Record<string, boolean> = {};
 
     for (const track of tracks) {
-      initialVolumes[track.id] = track.isInput ? 0 : 1;
+      initialVolumes[track.id] = 1;
       initialMuteStates[track.id] = track.isInput;
       initialDeafenStates[track.id] = false;
     }
@@ -378,7 +383,6 @@ export default function Player({ record, onClose }: PlayerProps) {
         URL.revokeObjectURL(track.url);
       });
     };
-    /* eslint-enable react-hooks/set-state-in-effect */
   }, [stopAllSources, tracks]);
 
   useEffect(() => {
@@ -432,8 +436,8 @@ export default function Player({ record, onClose }: PlayerProps) {
         const analyser = context.createAnalyser();
 
         analyser.fftSize = 2048;
-        wahFilter.type = "allpass";
-        wahFilter.Q.value = 0.0001;
+        wahFilter.type = "peaking";
+        wahFilter.Q.value = 0.8;
 
         gain.connect(wahFilter);
         wahFilter.connect(analyser);
