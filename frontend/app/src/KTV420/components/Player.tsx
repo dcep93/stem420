@@ -871,18 +871,62 @@ export default function Player({ record, onClose }: PlayerProps) {
       <div
         style={{
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <h3 style={{ margin: 0 }}>{playerTitle}</h3>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+            flexWrap: "wrap",
+            flex: 1,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <h3 style={{ margin: 0 }}>{playerTitle}</h3>
+            <button
+              type="button"
+              onClick={() => void handleClearCache()}
+              disabled={isClearingCache}
+            >
+              {isClearingCache ? "Clearing..." : "Clear cache"}
+            </button>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              flex: 1,
+              minWidth: "260px",
+            }}
+          >
+            <input
+              type="range"
+              min={0}
+              max={duration || 0}
+              step={0.1}
+              value={Math.min(currentTime, duration || 0)}
+              onChange={handleSeekChange}
+              onPointerDown={handleSeekStart}
+              onPointerUp={handleSeekEnd}
+              onPointerCancel={handleSeekEnd}
+              style={{ width: "100%", verticalAlign: "middle" }}
+            />
+            <span style={{ whiteSpace: "nowrap", minWidth: "120px" }}>
+              {formattedTime(currentTime)} / {formattedTime(duration)}
+            </span>
+          </div>
           <button
             type="button"
-            onClick={() => void handleClearCache()}
-            disabled={isClearingCache}
+            onClick={() => void handlePlayPause()}
+            disabled={!areTracksReady}
           >
-            {isClearingCache ? "Clearing..." : "Clear cache"}
+            {isPlaying ? "Pause" : areTracksReady ? "Play" : "Loading..."}
           </button>
         </div>
         <button type="button" onClick={onClose}>
@@ -907,42 +951,6 @@ export default function Player({ record, onClose }: PlayerProps) {
             }}
           />
         ))}
-      </div>
-      <div
-        style={{
-          marginTop: "1rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <input
-          type="range"
-          min={0}
-          max={duration || 0}
-          step={0.1}
-          value={Math.min(currentTime, duration || 0)}
-          onChange={handleSeekChange}
-          onPointerDown={handleSeekStart}
-          onPointerUp={handleSeekEnd}
-          onPointerCancel={handleSeekEnd}
-          style={{
-            width: "60%",
-            minWidth: "240px",
-            verticalAlign: "middle",
-          }}
-        />
-        <span style={{ marginRight: "0.5rem" }}>
-          {formattedTime(currentTime)} / {formattedTime(duration)}
-        </span>
-        <button
-          type="button"
-          onClick={() => void handlePlayPause()}
-          disabled={!areTracksReady}
-        >
-          {isPlaying ? "Pause" : areTracksReady ? "Play" : "Loading..."}
-        </button>
       </div>
       <div style={{ marginTop: "0.75rem" }}>
         <div
