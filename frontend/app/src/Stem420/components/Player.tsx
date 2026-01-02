@@ -19,6 +19,7 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [trackDurations, setTrackDurations] = useState<Record<string, number>>({});
   const [volumes, setVolumes] = useState<Record<string, number>>({});
 
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
@@ -49,6 +50,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     setVolumes(initialVolumes);
     setCurrentTime(0);
     setDuration(0);
+    setTrackDurations({});
     setIsPlaying(false);
     durationMap.current = {};
 
@@ -91,6 +93,10 @@ export default function Player({ record, onClose }: PlayerProps) {
 
     const handleLoadedMetadata = () => {
       durationMap.current[primaryTrackId] = primaryAudio.duration;
+      setTrackDurations((previous) => ({
+        ...previous,
+        [primaryTrackId]: primaryAudio.duration,
+      }));
       const durations = Object.values(durationMap.current);
       const maxDuration = durations.length
         ? Math.max(...durations)
@@ -124,6 +130,7 @@ export default function Player({ record, onClose }: PlayerProps) {
 
       const handleMetadata = () => {
         durationMap.current[track.id] = audio.duration;
+        setTrackDurations((previous) => ({ ...previous, [track.id]: audio.duration }));
         const durations = Object.values(durationMap.current);
         const maxDuration = durations.length ? Math.max(...durations) : 0;
         setDuration(Number.isFinite(maxDuration) ? maxDuration : 0);
@@ -242,10 +249,16 @@ export default function Player({ record, onClose }: PlayerProps) {
       <div style={{ marginTop: "1rem" }}>
         {tracks.map((track) => {
           const label = track.isInput ? `Input: ${track.name}` : `Output: ${track.name}`;
+          const trackDuration = trackDurations[track.id];
+          const durationLabel = Number.isFinite(trackDuration)
+            ? `${trackDuration.toFixed(2)}s`
+            : "Loading duration...";
 
           return (
             <div key={track.id} style={{ marginBottom: "0.75rem" }}>
-              <div style={{ marginBottom: "0.25rem" }}>{label}</div>
+              <div style={{ marginBottom: "0.25rem" }}>
+                {label} <span style={{ color: "#aaa" }}>({durationLabel})</span>
+              </div>
               <input
                 type="range"
                 min={0}
