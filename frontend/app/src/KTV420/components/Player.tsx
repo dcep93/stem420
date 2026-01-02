@@ -111,7 +111,14 @@ export default function Player({ record, onClose }: PlayerProps) {
         isInput: file.path.includes("/input/"),
         url: URL.createObjectURL(file.blob),
         blob: file.blob,
-      }));
+      }))
+      .sort((a, b) => {
+        if (a.isInput === b.isInput) {
+          return a.name.localeCompare(b.name);
+        }
+
+        return a.isInput ? 1 : -1;
+      });
   }, [record]);
 
   const primaryTrack = tracks.find((track) => track.isInput) ?? tracks[0];
@@ -878,9 +885,28 @@ export default function Player({ record, onClose }: PlayerProps) {
           Close
         </button>
       </div>
+      <div style={{ marginTop: "1rem" }}>
+        {tracks.map((track) => (
+          <TrackRow
+            key={track.id}
+            track={track}
+            volume={volumes[track.id] ?? 1}
+            isMuted={!!trackMuteStates[track.id]}
+            isDeafened={!!trackDeafenStates[track.id]}
+            wahValue={wahPositions[track.id] ?? 0.5}
+            onVolumeChange={handleVolumeChange}
+            onWahChange={handleWahChange}
+            onToggleMute={toggleTrackMute}
+            onToggleDeafen={toggleTrackDeafen}
+            registerCanvas={(ref) => {
+              canvasRefs.current[track.id] = ref;
+            }}
+          />
+        ))}
+      </div>
       <div
         style={{
-          marginTop: "0.75rem",
+          marginTop: "1rem",
           display: "flex",
           alignItems: "center",
           gap: "0.5rem",
@@ -906,8 +932,6 @@ export default function Player({ record, onClose }: PlayerProps) {
         <span style={{ marginRight: "0.5rem" }}>
           {formattedTime(currentTime)} / {formattedTime(duration)}
         </span>
-      </div>
-      <div style={{ marginTop: "0.5rem" }}>
         <button
           type="button"
           onClick={() => void handlePlayPause()}
@@ -955,25 +979,6 @@ export default function Player({ record, onClose }: PlayerProps) {
             );
           })}
         </div>
-      </div>
-      <div style={{ marginTop: "1rem" }}>
-        {tracks.map((track) => (
-          <TrackRow
-            key={track.id}
-            track={track}
-            volume={volumes[track.id] ?? 1}
-            isMuted={!!trackMuteStates[track.id]}
-            isDeafened={!!trackDeafenStates[track.id]}
-            wahValue={wahPositions[track.id] ?? 0.5}
-            onVolumeChange={handleVolumeChange}
-            onWahChange={handleWahChange}
-            onToggleMute={toggleTrackMute}
-            onToggleDeafen={toggleTrackDeafen}
-            registerCanvas={(ref) => {
-              canvasRefs.current[track.id] = ref;
-            }}
-          />
-        ))}
       </div>
     </div>
   );

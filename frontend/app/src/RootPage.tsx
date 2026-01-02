@@ -287,21 +287,33 @@ export default function RootPage() {
       tabIndex={-1}
       aria-label="Stem420 root page"
     >
-      <header className="root-page__header">
-        <div>
-          <h1>KTV420</h1>
-        </div>
-        <div className="root-page__actions">
-          <button
-            onClick={handleRefresh}
-            disabled={isLoading || isFetchingSelection}
-          >
-            Refresh inputs
-          </button>
-        </div>
-      </header>
+      {activeRecord ? (
+        <section className="root-page__player">
+          <Player record={activeRecord} onClose={() => setActiveRecord(null)} />
+        </section>
+      ) : null}
 
       <section className="root-page__panel">
+        <div className="root-page__status-row">
+          <div className="root-page__status-area">
+            {isLoading ? (
+              <p className="muted">Checking GCS for files...</p>
+            ) : null}
+            {!isLoading && inputOptions.length === 0 ? (
+              <p className="muted">No inputs were found in the bucket.</p>
+            ) : null}
+            {status ? <p>{status}</p> : null}
+            {error ? <p className="error">{error}</p> : null}
+          </div>
+          <div className="root-page__actions">
+            <button
+              onClick={handleRefresh}
+              disabled={isLoading || isFetchingSelection}
+            >
+              Refresh inputs
+            </button>
+          </div>
+        </div>
         <div className="root-page__control-group">
           <label htmlFor="input-selector">Choose an input file</label>
           <select
@@ -320,23 +332,7 @@ export default function RootPage() {
             ))}
           </select>
         </div>
-        <div className="root-page__status-area">
-          {isLoading ? (
-            <p className="muted">Checking GCS for files...</p>
-          ) : null}
-          {!isLoading && inputOptions.length === 0 ? (
-            <p className="muted">No inputs were found in the bucket.</p>
-          ) : null}
-          {status ? <p>{status}</p> : null}
-          {error ? <p className="error">{error}</p> : null}
-        </div>
       </section>
-
-      {activeRecord ? (
-        <section className="root-page__player">
-          <Player record={activeRecord} onClose={() => setActiveRecord(null)} />
-        </section>
-      ) : null}
     </main>
   );
 }
