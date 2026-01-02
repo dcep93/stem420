@@ -19,7 +19,9 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [trackDurations, setTrackDurations] = useState<Record<string, number>>({});
+  const [trackDurations, setTrackDurations] = useState<Record<string, number>>(
+    {}
+  );
   const [volumes, setVolumes] = useState<Record<string, number>>({});
 
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
@@ -130,7 +132,10 @@ export default function Player({ record, onClose }: PlayerProps) {
 
       const handleMetadata = () => {
         durationMap.current[track.id] = audio.duration;
-        setTrackDurations((previous) => ({ ...previous, [track.id]: audio.duration }));
+        setTrackDurations((previous) => ({
+          ...previous,
+          [track.id]: audio.duration,
+        }));
         const durations = Object.values(durationMap.current);
         const maxDuration = durations.length ? Math.max(...durations) : 0;
         setDuration(Number.isFinite(maxDuration) ? maxDuration : 0);
@@ -222,15 +227,27 @@ export default function Player({ record, onClose }: PlayerProps) {
   }
 
   return (
-    <div style={{ marginTop: "1.5rem", padding: "1rem", border: "1px solid #444" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div
+      style={{ marginTop: "1.5rem", padding: "1rem", border: "1px solid #444" }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <h3 style={{ margin: 0 }}>Cached Player for {record.md5}</h3>
         <button type="button" onClick={onClose}>
           Close
         </button>
       </div>
       <div style={{ marginTop: "0.75rem" }}>
-        <button type="button" onClick={() => void handlePlayPause()} style={{ marginRight: "0.5rem" }}>
+        <button
+          type="button"
+          onClick={() => void handlePlayPause()}
+          style={{ marginRight: "0.5rem" }}
+        >
           {isPlaying ? "Pause" : "Play"}
         </button>
         <input
@@ -240,7 +257,11 @@ export default function Player({ record, onClose }: PlayerProps) {
           step={0.1}
           value={Math.min(currentTime, duration || 0)}
           onChange={handleSeek}
-          style={{ width: "60%", marginRight: "0.5rem", verticalAlign: "middle" }}
+          style={{
+            width: "60%",
+            marginRight: "0.5rem",
+            verticalAlign: "middle",
+          }}
         />
         <span>
           {formattedTime(currentTime)} / {formattedTime(duration)}
@@ -248,10 +269,12 @@ export default function Player({ record, onClose }: PlayerProps) {
       </div>
       <div style={{ marginTop: "1rem" }}>
         {tracks.map((track) => {
-          const label = track.isInput ? `Input: ${track.name}` : `Output: ${track.name}`;
+          const label = track.isInput
+            ? `Input: ${track.name}`
+            : `Output: ${track.name}`;
           const trackDuration = trackDurations[track.id];
           const durationLabel = Number.isFinite(trackDuration)
-            ? `${trackDuration.toFixed(2)}s`
+            ? `${trackDuration.toFixed(4)}s`
             : "Loading duration...";
 
           return (
