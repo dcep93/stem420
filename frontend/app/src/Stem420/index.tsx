@@ -275,10 +275,91 @@ export default function Stem420() {
   const isMd5Folder = (node: ObjectTreeNode) =>
     node.type === "folder" && MD5_PATTERN.test(node.name);
 
+  const isInputFolder = (node: ObjectTreeNode) =>
+    node.type === "folder" && node.name.toLowerCase() === "input";
+
+  const findFirstMp3File = (node: ObjectTreeNode): ObjectTreeNode | null => {
+    if (node.type === "file" && node.name.toLowerCase().endsWith(".mp3")) {
+      return node;
+    }
+
+    for (const child of node.children ?? []) {
+      const mp3File = findFirstMp3File(child);
+
+      if (mp3File) {
+        return mp3File;
+      }
+    }
+
+    return null;
+  };
+
+  const triggerJobForMp3 = async (objectPath: string) => {
+    const functionName = "triggerJobForMp3";
+    const mp3Path = `gs://${BUCKET_NAME}/${objectPath}`;
+    const outputPath = mp3Path.replace(/\/input\/[^/]+$/, "/output/");
+
+    if (outputPath === mp3Path) {
+      console.error(
+        formatErrorMessage(functionName, "Unable to determine output path"),
+        mp3Path
+      );
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        "https://stem420-854199998954.us-east1.run.app/run_job",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ mp3_path: mp3Path, output_path: outputPath }),
+        }
+      );
+
+      const responseText = await response.text();
+      let parsedResponse: unknown;
+
+      try {
+        parsedResponse = JSON.parse(responseText);
+      } catch {
+        parsedResponse = responseText;
+      }
+
+      console.log("Run job response:", parsedResponse);
+
+      if (!response.ok) {
+        throw new Error(
+          `Request failed with status ${response.status}: ${response.statusText}`
+        );
+      }
+    } catch (error) {
+      console.error(formatErrorMessage(functionName, error), error);
+    }
+  };
+
   const handleFolderClick = async (node: ObjectTreeNode) => {
     const functionName = "handleFolderClick";
 
-    if (node.type !== "folder" || !isMd5Folder(node)) {
+    if (node.type !== "folder") {
+      return;
+    }
+
+    if (isInputFolder(node)) {
+      const mp3File = findFirstMp3File(node);
+
+      if (!mp3File) {
+        alert("No .mp3 file found in this input folder.");
+        return;
+      }
+
+      await triggerJobForMp3(mp3File.path);
+      return;
+    }
+
+    if (!isMd5Folder(node)) {
       return;
     }
 
@@ -361,48 +442,7 @@ export default function Stem420() {
       return;
     }
 
-    const mp3Path = `gs://${BUCKET_NAME}/${object.path}`;
-    const outputPath = mp3Path.replace(/\/input\/[^/]+$/, "/output/");
-
-    if (outputPath === mp3Path) {
-      console.error(
-        formatErrorMessage(functionName, "Unable to determine output path"),
-        mp3Path
-      );
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        "https://stem420-854199998954.us-east1.run.app/run_job",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ mp3_path: mp3Path, output_path: outputPath }),
-        }
-      );
-
-      const responseText = await response.text();
-      let parsedResponse: unknown;
-
-      try {
-        parsedResponse = JSON.parse(responseText);
-      } catch {
-        parsedResponse = responseText;
-      }
-
-      console.log("Run job response:", parsedResponse);
-
-      if (!response.ok) {
-        throw new Error(
-          `Request failed with status ${response.status}: ${response.statusText}`
-        );
-      }
-    } catch (error) {
-      console.error(formatErrorMessage(functionName, error), error);
-    }
+    await triggerJobForMp3(object.path);
   };
 
   useEffect(() => {
@@ -432,7 +472,7 @@ export default function Stem420() {
         totalObjects={objects.length}
         onRefresh={refreshObjectList}
         onFolderClick={handleFolderClick}
-        isFolderClickable={(node) => isMd5Folder(node)}
+        isFolderClickable={(node) => isMd5Folder(node) || isInputFolder(node)}
         onFileClick={handleFileClick}
       />
       <UploadControls
