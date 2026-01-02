@@ -22,7 +22,7 @@ type Track = {
 };
 
 const PAST_WINDOW_SECONDS = 5;
-const FUTURE_WINDOW_SECONDS = 25;
+const FUTURE_WINDOW_SECONDS = 15;
 const AMPLITUDE_WINDOW_SECONDS = 0.05;
 
 export default function Player({ record, onClose }: PlayerProps) {
@@ -435,10 +435,33 @@ export default function Player({ record, onClose }: PlayerProps) {
           };
 
           const centerX = (PAST_WINDOW_SECONDS / totalWindowSeconds) * width;
-          const gradient = context.createLinearGradient(0, 0, width, 0);
-          gradient.addColorStop(0, "#1dd3b0");
-          gradient.addColorStop(0.5, "#f2b705");
-          gradient.addColorStop(1, "#6c43f3");
+          const frequencyBins = analyser.frequencyBinCount;
+          const frequencyData = new Uint8Array(frequencyBins);
+
+          analyser.getByteFrequencyData(frequencyData);
+
+          let peakIndex = 0;
+          let peakValue = 0;
+
+          for (let i = 0; i < frequencyBins; i++) {
+            const binValue = frequencyData[i] ?? 0;
+
+            if (binValue > peakValue) {
+              peakValue = binValue;
+              peakIndex = i;
+            }
+          }
+
+          const sampleRate = audioContexts.current[track.id]?.sampleRate ?? 44100;
+          const nyquist = sampleRate / 2;
+          const dominantFrequency =
+            frequencyBins > 0 ? (peakIndex / frequencyBins) * nyquist : 0;
+          const hue = Math.max(
+            0,
+            Math.min(280, (dominantFrequency / 2000) * 280)
+          );
+          const ribbonColor = `hsl(${hue}, 80%, 60%)`;
+          const ribbonFillColor = `hsla(${hue}, 80%, 60%, 0.12)`;
 
           context.beginPath();
 
@@ -459,14 +482,14 @@ export default function Player({ record, onClose }: PlayerProps) {
             }
           }
 
-          context.strokeStyle = gradient;
+          context.strokeStyle = ribbonColor;
           context.lineWidth = 3;
           context.stroke();
 
           context.lineTo(width, baseY);
           context.lineTo(0, baseY);
           context.closePath();
-          context.fillStyle = "rgba(29, 211, 176, 0.08)";
+          context.fillStyle = ribbonFillColor;
           context.fill();
 
           context.strokeStyle = "rgba(255, 255, 255, 0.65)";
@@ -606,7 +629,7 @@ export default function Player({ record, onClose }: PlayerProps) {
           alignItems: "center",
         }}
       >
-        <h3 style={{ margin: 0 }}>Cached Player for {record.md5}</h3>
+        <h3 style={{ margin: 0 }}>{record.md5}</h3>
         <button type="button" onClick={onClose}>
           Close
         </button>
