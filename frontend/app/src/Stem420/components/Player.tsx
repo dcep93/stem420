@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { type CachedOutputRecord } from "../indexedDbClient";
 
+type VisualizerType =
+  | "laser-ladders"
+  | "spectrum-safari"
+  | "time-travel-oscilloscope";
+
 type PlayerProps = {
   record: CachedOutputRecord;
   onClose: () => void;
@@ -23,9 +28,19 @@ export default function Player({ record, onClose }: PlayerProps) {
     {}
   );
   const [volumes, setVolumes] = useState<Record<string, number>>({});
+  const [visualizerType, setVisualizerType] = useState<VisualizerType>(
+    "laser-ladders"
+  );
 
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
   const durationMap = useRef<Record<string, number>>({});
+  const audioContexts = useRef<Record<string, AudioContext | null>>({});
+  const analyserNodes = useRef<Record<string, AnalyserNode | null>>({});
+  const sourceNodes = useRef<
+    Record<string, MediaElementAudioSourceNode | null>
+  >({});
+  const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
+  const animationFrameRef = useRef<number | null>(null);
 
   const tracks = useMemo<Track[]>(() => {
     return record.files
@@ -41,6 +56,20 @@ export default function Player({ record, onClose }: PlayerProps) {
 
   const primaryTrack = tracks.find((track) => track.isInput) ?? tracks[0];
   const primaryTrackId = primaryTrack?.id ?? null;
+
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      Object.values(audioContexts.current).forEach((context) => {
+        context?.close().catch((error) => {
+          console.error("Failed to close audio context", error);
+        });
+      });
+    };
+  }, []);
 
   useEffect(() => {
     const initialVolumes: Record<string, number> = {};
@@ -152,6 +181,176 @@ export default function Player({ record, onClose }: PlayerProps) {
       cleanups.forEach((cleanup) => cleanup && cleanup());
     };
   }, [tracks]);
+
+  useEffect(() => {
+    const activeIds = new Set(tracks.map((track) => track.id));
+
+    Object.keys(audioContexts.current).forEach((id) => {
+      if (activeIds.has(id)) {
+        return;
+      }
+
+      audioContexts.current[id]?.close().catch((error) => {
+        console.error("Failed to close audio context", error);
+      });
+      delete audioContexts.current[id];
+      delete analyserNodes.current[id];
+      delete sourceNodes.current[id];
+      delete canvasRefs.current[id];
+    });
+
+    const ensureAnalyser = (track: Track) => {
+      const audio = audioRefs.current[track.id];
+
+      if (!audio) {
+        return null;
+      }
+
+      const existingAnalyser = analyserNodes.current[track.id];
+
+      if (existingAnalyser) {
+        const context = audioContexts.current[track.id];
+
+        if (context?.state === "suspended") {
+          void context.resume();
+        }
+
+        return existingAnalyser;
+      }
+
+      const context = new AudioContext();
+      const source = context.createMediaElementSource(audio);
+      const analyser = context.createAnalyser();
+
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyser.connect(context.destination);
+
+      audioContexts.current[track.id] = context;
+      analyserNodes.current[track.id] = analyser;
+      sourceNodes.current[track.id] = source;
+
+      return analyser;
+    };
+
+    const draw = () => {
+      tracks.forEach((track) => {
+        const analyser = ensureAnalyser(track);
+        const canvas = canvasRefs.current[track.id];
+        const audio = audioRefs.current[track.id];
+
+        if (!analyser || !canvas || !audio) {
+          return;
+        }
+
+        const context = canvas.getContext("2d");
+
+        if (!context) {
+          return;
+        }
+
+        const { width, height } = canvas;
+        context.clearRect(0, 0, width, height);
+
+        const timeDisplay = `${audio.currentTime.toFixed(2)}s / ${Math.max(
+          audio.duration,
+          duration || 0
+        ).toFixed(2)}s`;
+
+        context.fillStyle = "#0a0a0a";
+        context.fillRect(0, 0, width, height);
+        context.fillStyle = "#999";
+        context.font = "12px sans-serif";
+        context.fillText(timeDisplay, 10, 16);
+
+        if (visualizerType === "laser-ladders") {
+          const bufferLength = analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
+          analyser.getByteFrequencyData(dataArray);
+          const barWidth = (width / bufferLength) * 2.5;
+
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const barHeight = dataArray[i];
+            const gradient = context.createLinearGradient(
+              0,
+              height,
+              0,
+              height - barHeight
+            );
+            gradient.addColorStop(0, "#1dd3b0");
+            gradient.addColorStop(1, "#6c43f3");
+            context.fillStyle = gradient;
+            context.fillRect(x, height - barHeight, barWidth - 1, barHeight);
+            x += barWidth;
+          }
+        } else if (visualizerType === "spectrum-safari") {
+          const bufferLength = analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
+          analyser.getByteFrequencyData(dataArray);
+          const sliceWidth = width / bufferLength;
+          context.beginPath();
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 255;
+            const y = height - v * height;
+            if (i === 0) {
+              context.moveTo(x, y);
+            } else {
+              context.lineTo(x, y);
+            }
+            x += sliceWidth;
+          }
+
+          context.strokeStyle = "#f2b705";
+          context.lineWidth = 2;
+          context.stroke();
+          context.fillStyle = "rgba(242, 183, 5, 0.15)";
+          context.fill();
+        } else {
+          const bufferLength = analyser.fftSize;
+          const dataArray = new Uint8Array(bufferLength);
+          analyser.getByteTimeDomainData(dataArray);
+          context.beginPath();
+          const sliceWidth = width / bufferLength;
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = (v * height) / 2;
+            if (i === 0) {
+              context.moveTo(x, y);
+            } else {
+              context.lineTo(x, y);
+            }
+            x += sliceWidth;
+          }
+
+          context.strokeStyle = "#14c3ff";
+          context.lineWidth = 2;
+          context.stroke();
+
+          context.fillStyle = "rgba(20, 195, 255, 0.15)";
+          context.fillRect(width * 0.6, 0, width * 0.4, height);
+          context.fillStyle = "#fff";
+          context.font = "11px sans-serif";
+          context.fillText("Peeking into the future", width * 0.62, height - 8);
+        }
+      });
+
+      animationFrameRef.current = requestAnimationFrame(draw);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(draw);
+
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [tracks, visualizerType, duration]);
 
   const updateAllCurrentTime = (newTime: number) => {
     Object.values(audioRefs.current).forEach((audio) => {
@@ -288,6 +487,24 @@ export default function Player({ record, onClose }: PlayerProps) {
           {formattedTime(currentTime)} / {formattedTime(duration)}
         </span>
       </div>
+      <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+        <label htmlFor="visualizer-type" style={{ fontWeight: 600 }}>
+          Visualizer
+        </label>
+        <select
+          id="visualizer-type"
+          value={visualizerType}
+          onChange={(event) =>
+            setVisualizerType(event.target.value as VisualizerType)
+          }
+        >
+          <option value="laser-ladders">Laser Ladders (Graphic EQ)</option>
+          <option value="spectrum-safari">Spectrum Safari (Analyzer)</option>
+          <option value="time-travel-oscilloscope">
+            Time-Travel Oscilloscope (Past + Future)
+          </option>
+        </select>
+      </div>
       <div style={{ marginTop: "1rem" }}>
         {tracks.map((track) => {
           const label = track.isInput
@@ -314,6 +531,22 @@ export default function Player({ record, onClose }: PlayerProps) {
                 }
                 style={{ width: "50%" }}
               />
+              <div style={{ marginTop: "0.4rem" }}>
+                <canvas
+                  ref={(ref) => {
+                    canvasRefs.current[track.id] = ref;
+                  }}
+                  width={520}
+                  height={120}
+                  style={{
+                    border: "1px solid #333",
+                    background: "linear-gradient(90deg, #0b0f19, #0f0b19)",
+                    width: "100%",
+                    maxWidth: "520px",
+                    display: "block",
+                  }}
+                />
+              </div>
               <audio
                 ref={(ref) => {
                   audioRefs.current[track.id] = ref;
