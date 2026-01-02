@@ -286,18 +286,26 @@ export default function Player({ record, onClose }: PlayerProps) {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     const initialVolumes: Record<string, number> = {};
+    const initialMuteStates: Record<string, boolean> = {};
+    const initialDeafenStates: Record<string, boolean> = {};
 
     for (const track of tracks) {
-      initialVolumes[track.id] = 1;
+      initialVolumes[track.id] = track.isInput ? 0 : 1;
+      initialMuteStates[track.id] = track.isInput;
+      initialDeafenStates[track.id] = false;
     }
+
+    volumesRef.current = initialVolumes;
+    trackMuteStatesRef.current = initialMuteStates;
+    trackDeafenStatesRef.current = initialDeafenStates;
 
     setVolumes(initialVolumes);
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
     setReadyTrackIds([]);
-    setTrackMuteStates({});
-    setTrackDeafenStates({});
+    setTrackMuteStates(initialMuteStates);
+    setTrackDeafenStates(initialDeafenStates);
     setAmplitudeEnvelopes({});
     setAmplitudeMaximums({});
     startOffsetRef.current = 0;
@@ -654,10 +662,6 @@ export default function Player({ record, onClose }: PlayerProps) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== "Space" && event.key !== " ") {
-        return;
-      }
-
       const target = event.target as HTMLElement | null;
       const isInteractiveTarget =
         target instanceof HTMLInputElement ||
@@ -670,8 +674,47 @@ export default function Player({ record, onClose }: PlayerProps) {
         return;
       }
 
-      event.preventDefault();
-      void handlePlayPause();
+      if (event.code === "Space" || event.key === " ") {
+        event.preventDefault();
+        void handlePlayPause();
+        return;
+      }
+
+      if (event.code === "ArrowRight" || event.key === "ArrowRight") {
+        event.preventDefault();
+        setVisualizerType((current) => {
+          const currentIndex = visualizerOptions.findIndex(
+            (option) => option.value === current
+          );
+
+          if (currentIndex === -1) {
+            return visualizerOptions[0]?.value ?? "time-ribbon";
+          }
+
+          return visualizerOptions[
+            (currentIndex + 1) % visualizerOptions.length
+          ]?.value;
+        });
+        return;
+      }
+
+      if (event.code === "ArrowLeft" || event.key === "ArrowLeft") {
+        event.preventDefault();
+        setVisualizerType((current) => {
+          const currentIndex = visualizerOptions.findIndex(
+            (option) => option.value === current
+          );
+
+          if (currentIndex === -1) {
+            return visualizerOptions[0]?.value ?? "time-ribbon";
+          }
+
+          return visualizerOptions[
+            (currentIndex - 1 + visualizerOptions.length) %
+              visualizerOptions.length
+          ]?.value;
+        });
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
