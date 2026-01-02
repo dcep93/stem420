@@ -67,6 +67,7 @@ export default function Player({ record, onClose }: PlayerProps) {
 
   const primaryTrack = tracks.find((track) => track.isInput) ?? tracks[0];
   const primaryTrackId = primaryTrack?.id ?? null;
+  const playerTitle = primaryTrack?.name ?? "Playback";
 
   useEffect(() => {
     const audioContextsSnapshot = audioContexts.current;
@@ -629,7 +630,7 @@ export default function Player({ record, onClose }: PlayerProps) {
           alignItems: "center",
         }}
       >
-        <h3 style={{ margin: 0 }}>{record.md5}</h3>
+        <h3 style={{ margin: 0 }}>{playerTitle}</h3>
         <button type="button" onClick={onClose}>
           Close
         </button>

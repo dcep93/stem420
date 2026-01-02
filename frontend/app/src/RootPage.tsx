@@ -88,7 +88,7 @@ export default function RootPage() {
 
         return {
           value: object.name,
-          label: `${fileName} (${md5.slice(0, 8)}...)`,
+          label: fileName,
           md5,
         } satisfies InputOption;
       })
@@ -128,7 +128,7 @@ export default function RootPage() {
       const cachedRecord = await getCachedMd5(selectedOption.md5);
 
       if (cachedRecord) {
-        setStatus("Loaded from your browser cache.");
+        setStatus("Loaded cached files.");
         setActiveRecord(cachedRecord);
         return;
       }
