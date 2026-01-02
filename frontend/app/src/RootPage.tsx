@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Player from "./KTV420/components/Player";
 import { formatErrorMessage } from "./KTV420/errors";
@@ -49,8 +49,40 @@ export default function RootPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetchingSelection, setIsFetchingSelection] = useState(false);
+  const rootPageRef = useRef<HTMLElement | null>(null);
 
   const resetStatus = () => setStatus(null);
+
+  useEffect(() => {
+    const focusRoot = () => {
+      if (rootPageRef.current) {
+        rootPageRef.current.focus({ preventScroll: true });
+      }
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isInteractiveTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLButtonElement ||
+        target?.isContentEditable;
+
+      if (!isInteractiveTarget) {
+        focusRoot();
+      }
+    };
+
+    focusRoot();
+    window.addEventListener("focus", focusRoot);
+    window.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.removeEventListener("focus", focusRoot);
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, []);
 
   const refreshObjectTree = useCallback(
     async (statusMessage: string | null = null) => {
@@ -183,7 +215,12 @@ export default function RootPage() {
   };
 
   return (
-    <main className="root-page">
+    <main
+      className="root-page"
+      ref={rootPageRef}
+      tabIndex={-1}
+      aria-label="Stem420 root page"
+    >
       <header className="root-page__header">
         <div>
           <h1>KTV420</h1>
