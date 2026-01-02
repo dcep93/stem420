@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
+import "./RootPage.css";
 import Player from "./Stem420/components/Player";
 import { formatErrorMessage } from "./Stem420/errors";
-import { listBucketObjects, fetchObjectBlob } from "./Stem420/gcsClient";
+import { fetchObjectBlob, listBucketObjects } from "./Stem420/gcsClient";
 import {
   type CachedOutputRecord,
   cacheMd5Files,
@@ -11,7 +12,6 @@ import {
 import { buildObjectTree } from "./Stem420/objectTree";
 import { type GcsObject, type ObjectTreeNode } from "./Stem420/types";
 import { collectFileNodes, extractMd5FromPath } from "./Stem420/utils";
-import "./RootPage.css";
 
 type InputOption = {
   value: string;
@@ -28,9 +28,7 @@ const findMd5Node = (
       return node;
     }
 
-    const childResult = node.children
-      ? findMd5Node(node.children, md5)
-      : null;
+    const childResult = node.children ? findMd5Node(node.children, md5) : null;
 
     if (childResult) {
       return childResult;
@@ -63,7 +61,10 @@ export default function RootPage() {
         setObjects(listedObjects);
         setObjectTree(buildObjectTree(listedObjects));
       } catch (loadError) {
-        const formattedMessage = formatErrorMessage("listBucketObjects", loadError);
+        const formattedMessage = formatErrorMessage(
+          "listBucketObjects",
+          loadError
+        );
         console.error(formattedMessage, loadError);
         setError(formattedMessage);
       } finally {
@@ -77,7 +78,9 @@ export default function RootPage() {
 
   const inputOptions = useMemo<InputOption[]>(() => {
     const options = objects
-      .filter((object) => object.type === "file" && object.name.includes("/input/"))
+      .filter(
+        (object) => object.type === "file" && object.name.includes("/input/")
+      )
       .map((object) => {
         const md5 = extractMd5FromPath(object.name);
         const fileName = object.name.split("/").pop() ?? object.name;
@@ -107,7 +110,9 @@ export default function RootPage() {
       return;
     }
 
-    const selectedOption = inputOptions.find((option) => option.value === value);
+    const selectedOption = inputOptions.find(
+      (option) => option.value === value
+    );
 
     if (!selectedOption) {
       setError("Unable to find the selected input.");
@@ -174,7 +179,10 @@ export default function RootPage() {
       setObjects(listedObjects);
       setObjectTree(buildObjectTree(listedObjects));
     } catch (refreshError) {
-      const formattedMessage = formatErrorMessage("listBucketObjects", refreshError);
+      const formattedMessage = formatErrorMessage(
+        "listBucketObjects",
+        refreshError
+      );
       console.error(formattedMessage, refreshError);
       setError(formattedMessage);
     } finally {
@@ -188,13 +196,12 @@ export default function RootPage() {
       <header className="root-page__header">
         <div>
           <h1>Stem420 Player</h1>
-          <p className="root-page__subtitle">
-            Pick an uploaded input to stream its files from GCS into your browser cache
-            and start playback instantly.
-          </p>
         </div>
         <div className="root-page__actions">
-          <button onClick={handleRefresh} disabled={isLoading || isFetchingSelection}>
+          <button
+            onClick={handleRefresh}
+            disabled={isLoading || isFetchingSelection}
+          >
             Refresh inputs
           </button>
         </div>
@@ -207,7 +214,9 @@ export default function RootPage() {
             id="input-selector"
             value={selectedInput}
             onChange={(event) => void handleSelection(event.target.value)}
-            disabled={isLoading || isFetchingSelection || inputOptions.length === 0}
+            disabled={
+              isLoading || isFetchingSelection || inputOptions.length === 0
+            }
           >
             <option value="">Select an input...</option>
             {inputOptions.map((option) => (
@@ -218,7 +227,9 @@ export default function RootPage() {
           </select>
         </div>
         <div className="root-page__status-area">
-          {isLoading ? <p className="muted">Checking GCS for files...</p> : null}
+          {isLoading ? (
+            <p className="muted">Checking GCS for files...</p>
+          ) : null}
           {!isLoading && inputOptions.length === 0 ? (
             <p className="muted">No inputs were found in the bucket.</p>
           ) : null}
