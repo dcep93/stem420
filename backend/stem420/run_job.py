@@ -143,6 +143,12 @@ def _wav_info(wav_path: Path) -> Tuple[int, int]:
 def _force_length_samples(
     input_wav: Path, output_wav: Path, ref_samples: int, ref_sample_rate: int
 ) -> None:
+    filter_chain = (
+        "aresample="
+        f"{ref_sample_rate}:resampler=soxr,"
+        f"apad=pad_len={ref_samples},"
+        f"atrim=end_sample={ref_samples}"
+    )
     result = subprocess.run(
         [
             "ffmpeg",
@@ -150,11 +156,7 @@ def _force_length_samples(
             "-i",
             str(input_wav),
             "-af",
-            (
-                "aresample="
-                f"{ref_sample_rate}:resampler=soxr,"
-                f"asetnsamples=n={ref_samples}:p=1"
-            ),
+            filter_chain,
             str(output_wav),
         ],
         capture_output=True,
@@ -278,7 +280,7 @@ def _write_metadata(
         "ref_sample_rate": ref_sample_rate,
         "ref_duration_s": ref_samples / ref_sample_rate if ref_sample_rate else 0.0,
         "aligned_format": "flac",
-        "alignment_method": "asetnsamples end-pad",
+        "alignment_method": "aresample+apad+atrim end_sample",
     }
     metadata_path.write_text(json.dumps(metadata))
     return metadata_path

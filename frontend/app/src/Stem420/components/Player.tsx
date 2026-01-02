@@ -29,7 +29,7 @@ export default function Player({ record, onClose }: PlayerProps) {
 
   const tracks = useMemo<Track[]>(() => {
     return record.files
-      .filter((file) => file.name.toLowerCase().endsWith(".mp3"))
+      .filter((file) => !file.name.toLowerCase().endsWith(".json"))
       .map((file, index) => ({
         id: `${record.md5}-${index}`,
         name: file.name,
