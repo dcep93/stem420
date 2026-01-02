@@ -72,6 +72,7 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [trackDeafenStates, setTrackDeafenStates] = useState<
     Record<string, boolean>
   >({});
+  const [wahPositions, setWahPositions] = useState<Record<string, number>>({});
   const [readyTrackIds, setReadyTrackIds] = useState<string[]>([]);
   const [isClearingCache, setIsClearingCache] = useState(false);
   const isAnyTrackDeafened = useMemo(
@@ -82,10 +83,12 @@ export default function Player({ record, onClose }: PlayerProps) {
   const volumesRef = useRef<Record<string, number>>({});
   const trackMuteStatesRef = useRef<Record<string, boolean>>({});
   const trackDeafenStatesRef = useRef<Record<string, boolean>>({});
+  const wahPositionsRef = useRef<Record<string, number>>({});
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const buffersRef = useRef<Record<string, AudioBuffer>>({});
   const gainNodesRef = useRef<Record<string, GainNode>>({});
+  const wahNodesRef = useRef<Record<string, BiquadFilterNode>>({});
   const analyserNodesRef = useRef<Record<string, AnalyserNode>>({});
   const sourcesRef = useRef<Record<string, AudioBufferSourceNode>>({});
   const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
@@ -152,6 +155,10 @@ export default function Player({ record, onClose }: PlayerProps) {
   useEffect(() => {
     trackDeafenStatesRef.current = trackDeafenStates;
   }, [trackDeafenStates]);
+
+  useEffect(() => {
+    wahPositionsRef.current = wahPositions;
+  }, [wahPositions]);
 
   const getEffectiveVolumeFromRefs = useCallback(
     (trackId: string, baseVolume?: number) => {
@@ -250,6 +257,45 @@ export default function Player({ record, onClose }: PlayerProps) {
     [ensureAudioContext, getEffectiveVolume]
   );
 
+  const applyWahPosition = useCallback(
+    (trackId: string, position?: number) => {
+      const context = audioCtxRef.current ?? ensureAudioContext();
+      const filterNode = wahNodesRef.current[trackId];
+
+      if (!context || !filterNode) {
+        return;
+      }
+
+      const normalized = Math.min(
+        1,
+        Math.max(0, position ?? wahPositionsRef.current[trackId] ?? 0.5)
+      );
+      const offsetFromCenter = normalized - 0.5;
+
+      if (Math.abs(offsetFromCenter) < 0.01) {
+        filterNode.type = "allpass";
+        filterNode.frequency.setTargetAtTime(1200, context.currentTime, 0.01);
+        filterNode.Q.setTargetAtTime(0.0001, context.currentTime, 0.01);
+        return;
+      }
+
+      filterNode.type = "bandpass";
+      const minFrequency = 250;
+      const maxFrequency = 3500;
+      const frequency =
+        minFrequency + normalized * (maxFrequency - minFrequency);
+      const resonance = 1 + Math.abs(offsetFromCenter) * 18;
+
+      filterNode.frequency.setTargetAtTime(
+        frequency,
+        context.currentTime,
+        0.01
+      );
+      filterNode.Q.setTargetAtTime(resonance, context.currentTime, 0.01);
+    },
+    [ensureAudioContext]
+  );
+
   const currentPlaybackTime = useCallback(() => {
     const context = audioCtxRef.current;
 
@@ -315,6 +361,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     stopAllSources();
     buffersRef.current = {};
     gainNodesRef.current = {};
+    wahNodesRef.current = {};
     analyserNodesRef.current = {};
 
     const tracksSnapshot = tracks;
@@ -334,6 +381,13 @@ export default function Player({ record, onClose }: PlayerProps) {
       if (!activeIds.has(id)) {
         gainNode.disconnect();
         delete gainNodesRef.current[id];
+      }
+    });
+
+    Object.entries(wahNodesRef.current).forEach(([id, filter]) => {
+      if (!activeIds.has(id)) {
+        filter.disconnect();
+        delete wahNodesRef.current[id];
       }
     });
 
@@ -367,18 +421,29 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         buffersRef.current[track.id] = audioBuffer;
         const gain = context.createGain();
+        const wahFilter = context.createBiquadFilter();
         const analyser = context.createAnalyser();
 
         analyser.fftSize = 2048;
-        gain.connect(analyser);
+        wahFilter.type = "allpass";
+        wahFilter.Q.value = 0.0001;
+
+        gain.connect(wahFilter);
+        wahFilter.connect(analyser);
         analyser.connect(context.destination);
 
         gainNodesRef.current[track.id] = gain;
+        wahNodesRef.current[track.id] = wahFilter;
         analyserNodesRef.current[track.id] = analyser;
         gain.gain.setValueAtTime(
           getEffectiveVolumeFromRefs(track.id, volumesRef.current[track.id]),
           context.currentTime
         );
+        applyWahPosition(track.id, wahPositionsRef.current[track.id] ?? 0.5);
+        setWahPositions((previous) => ({
+          ...previous,
+          [track.id]: previous[track.id] ?? 0.5,
+        }));
 
         setDuration((previous) => {
           const maxDuration = Math.max(previous, audioBuffer.duration);
@@ -442,7 +507,12 @@ export default function Player({ record, onClose }: PlayerProps) {
     return () => {
       isCancelled = true;
     };
-  }, [ensureAudioContext, getEffectiveVolumeFromRefs, tracks]);
+  }, [
+    applyWahPosition,
+    ensureAudioContext,
+    getEffectiveVolumeFromRefs,
+    tracks,
+  ]);
 
   useEffect(() => {
     tracks.forEach((track) => {
@@ -731,6 +801,13 @@ export default function Player({ record, onClose }: PlayerProps) {
     applyEffectiveVolume(trackId, value);
   };
 
+  const handleWahChange = (trackId: string, value: number) => {
+    const clamped = Math.min(1, Math.max(0, value));
+
+    setWahPositions((previous) => ({ ...previous, [trackId]: clamped }));
+    applyWahPosition(trackId, clamped);
+  };
+
   const toggleTrackMute = (trackId: string) => {
     setTrackMuteStates((previous) => ({
       ...previous,
@@ -887,7 +964,9 @@ export default function Player({ record, onClose }: PlayerProps) {
             volume={volumes[track.id] ?? 1}
             isMuted={!!trackMuteStates[track.id]}
             isDeafened={!!trackDeafenStates[track.id]}
+            wahValue={wahPositions[track.id] ?? 0.5}
             onVolumeChange={handleVolumeChange}
+            onWahChange={handleWahChange}
             onToggleMute={toggleTrackMute}
             onToggleDeafen={toggleTrackDeafen}
             registerCanvas={(ref) => {
