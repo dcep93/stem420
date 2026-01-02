@@ -416,7 +416,7 @@ export default function Player({ record, onClose }: PlayerProps) {
           let x = 0;
 
           for (let i = 0; i < bufferLength; i++) {
-            const barHeight = dataArray[i];
+            const barHeight = dataArray[i] / 2;
             const gradient = context.createLinearGradient(
               0,
               height,
