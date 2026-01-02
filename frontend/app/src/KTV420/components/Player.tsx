@@ -925,8 +925,19 @@ export default function Player({ record, onClose }: PlayerProps) {
             type="button"
             onClick={() => void handlePlayPause()}
             disabled={!areTracksReady}
+            aria-label={isPlaying ? "Pause" : "Play"}
+            style={{ minWidth: "3rem" }}
           >
-            {isPlaying ? "Pause" : areTracksReady ? "Play" : "Loading..."}
+            <span
+              style={{ display: "inline-block", width: "1.5em", textAlign: "center" }}
+              aria-hidden
+            >
+              {isPlaying
+                ? "⏸"
+                : areTracksReady
+                  ? "▶"
+                  : "⏳"}
+            </span>
           </button>
         </div>
         <button type="button" onClick={onClose}>
