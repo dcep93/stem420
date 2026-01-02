@@ -1035,10 +1035,11 @@ export function drawVisualizer({
     context.translate(centerX, centerY);
     context.rotate(Math.sin(currentTime * 0.25) * 0.12);
 
-    const arms = 5;
-    const loops = 6;
-    const segments = 340;
+    const arms = 4;
+    const loops = 5;
+    const segments = 220;
     const spiralStrength = 0.7 + totalEnergy * 0.8;
+    const musicSpin = 0.35 + totalEnergy * 1.2 + bassEnergy * 0.8;
     const spinNoise = (seed: number) => {
       const x = Math.sin(seed * 12.9898 + currentTime * 0.9) * 43758.5453;
       return (x - Math.floor(x)) * Math.PI * 2;
@@ -1053,7 +1054,11 @@ export function drawVisualizer({
         const osc = ((timeData[index] ?? 128) - 128) / 128;
         const spiralRadius = Math.pow(t, 0.75) * maxRadius * (0.9 + Math.abs(osc) * 0.25);
         const wobble = Math.sin(currentTime * 1.3 + s * 0.06 + arm) * 0.35;
-        const spin = t * loops * Math.PI * 2 + arm * ((Math.PI * 2) / arms) + wobble;
+        const spin =
+          t * loops * Math.PI * 2 +
+          arm * ((Math.PI * 2) / arms) +
+          wobble +
+          currentTime * musicSpin;
         const flare = 1 + bassEnergy * 0.6 + totalEnergy * 0.6;
         const x = Math.cos(spin) * spiralRadius * spiralStrength * flare;
         const y = Math.sin(spin) * spiralRadius * spiralStrength * flare;
@@ -1066,16 +1071,16 @@ export function drawVisualizer({
       }
 
       const hue = (120 + arm * 40 + totalEnergy * 200) % 360;
-      const glow = 14 + totalEnergy * 36 + bassEnergy * 24;
+      const glow = 12 + totalEnergy * 28 + bassEnergy * 20;
       context.strokeStyle = `hsla(${hue}, 95%, ${58 + bassEnergy * 20}%, ${0.24 + totalEnergy * 0.35})`;
-      context.lineWidth = 2.4 + bassEnergy * 1.5;
+      context.lineWidth = 2 + bassEnergy * 1.2;
       context.shadowBlur = glow;
       context.shadowColor = `hsla(${hue}, 95%, 70%, 0.8)`;
       context.stroke(path);
 
       context.save();
       context.globalCompositeOperation = "screen";
-      const sparks = 80;
+      const sparks = 48;
       for (let i = 0; i < sparks; i++) {
         const t = i / sparks;
         const sparkRadius = (0.1 + t * 1.1) * maxRadius;
@@ -1305,27 +1310,28 @@ export function drawVisualizer({
         : 0;
 
     const sky = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius);
-    sky.addColorStop(0, "#0a0b12");
-    sky.addColorStop(1, "#05060d");
+    sky.addColorStop(0, "#2b1b3a");
+    sky.addColorStop(0.45, "#211237");
+    sky.addColorStop(1, "#0a0b12");
     context.fillStyle = sky;
     context.fillRect(0, 0, width, height);
 
     context.save();
     context.translate(centerX, centerY);
-    const slices = 12;
+    const slices = 16;
     const wedge = (Math.PI * 2) / slices;
-    const pulse = 0.6 + Math.sin(currentTime * 1.5) * 0.25 + energy * 0.4;
+    const pulse = 0.7 + Math.sin(currentTime * 1.6 + energy * 2) * 0.25 + energy * 0.5;
 
-    const drawWedge = () => {
-      const points = 140;
+    const drawWedge = (flip = false) => {
+      const points = 110;
       context.beginPath();
       context.moveTo(0, 0);
       for (let i = 0; i <= points; i++) {
         const t = i / points;
         const idx = Math.floor(t * (timeLength - 1));
         const osc = ((timeData[idx] ?? 128) - 128) / 128;
-        const radius = (0.12 + t * 0.9) * maxRadius * (0.6 + Math.abs(osc) * 0.8) * pulse;
-        const angle = wedge * t;
+        const radius = (0.2 + t * 0.85) * maxRadius * (0.5 + Math.abs(osc) * 0.9) * pulse;
+        const angle = wedge * (flip ? 1 - t : t);
         context.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
       }
       context.closePath();
@@ -1333,33 +1339,47 @@ export function drawVisualizer({
 
     for (let slice = 0; slice < slices; slice++) {
       context.save();
-      context.rotate(slice * wedge + currentTime * 0.15 + energy * 0.4);
+      context.rotate(slice * wedge + currentTime * (0.2 + energy * 0.5));
+      const hue = (slice * 24 + energy * 260 + currentTime * 80) % 360;
+      const lightness = 55 + energy * 20;
+      context.fillStyle = `hsla(${hue}, 80%, ${lightness}%, 0.22)`;
+      context.strokeStyle = `hsla(${hue}, 90%, ${lightness + 10}%, ${0.5 + energy * 0.3})`;
+      context.lineWidth = 1.5;
       drawWedge();
-      const hue = (slice * 30 + currentTime * 120 + energy * 240) % 360;
-      context.fillStyle = `hsla(${hue}, 85%, 65%, 0.14)`;
-      context.strokeStyle = `hsla(${hue}, 95%, 72%, ${0.4 + energy * 0.35})`;
-      context.lineWidth = 2;
       context.fill();
       context.stroke();
 
       context.scale(-1, 1);
-      drawWedge();
+      drawWedge(true);
       context.fill();
       context.stroke();
       context.restore();
     }
 
     context.globalCompositeOperation = "lighter";
-    const lensRings = 6;
-    for (let ring = 0; ring < lensRings; ring++) {
-      const progress = ring / lensRings;
-      const radius = (0.18 + progress * 0.75) * maxRadius;
-      const hue = (progress * 220 + currentTime * 80 + energy * 260) % 360;
+    const ringCount = 6;
+    for (let ring = 0; ring < ringCount; ring++) {
+      const progress = ring / ringCount;
+      const radius = (0.15 + progress * 0.8) * maxRadius;
+      const hue = (progress * 210 + currentTime * 60 + energy * 300) % 360;
+      const pulseWidth = 1.2 + Math.sin(currentTime * 2 + ring) * 0.6;
       context.beginPath();
       context.arc(0, 0, radius, 0, Math.PI * 2);
-      context.strokeStyle = `hsla(${hue}, 90%, ${55 + progress * 25}%, ${0.18 + energy * 0.25})`;
-      context.lineWidth = 1.5 + Math.sin(currentTime * 2 + ring) * 0.6;
+      context.strokeStyle = `hsla(${hue}, 95%, ${45 + progress * 35}%, ${0.18 + energy * 0.3})`;
+      context.lineWidth = pulseWidth;
       context.stroke();
+    }
+
+    const moteCount = 70;
+    for (let i = 0; i < moteCount; i++) {
+      const t = i / moteCount;
+      const hue = (t * 360 + energy * 240 + currentTime * 40) % 360;
+      const radius = (0.2 + Math.sin(currentTime * 0.8 + i) * 0.1 + t * 0.8) * maxRadius;
+      const theta = wedge * i + currentTime * 0.5 + energy * 3;
+      context.beginPath();
+      context.arc(Math.cos(theta) * radius, Math.sin(theta) * radius, 2 + energy * 3, 0, Math.PI * 2);
+      context.fillStyle = `hsla(${hue}, 95%, 70%, 0.25)`;
+      context.fill();
     }
 
     context.globalCompositeOperation = "source-over";
@@ -1454,7 +1474,7 @@ export function drawVisualizer({
       context.stroke();
     }
 
-    const laneLines = 16;
+    const laneLines = 10;
     const speed = 140 * (0.55 + energy * 1.2);
     for (let i = 0; i < laneLines; i++) {
       const depth = ((i * 150 + currentTime * speed) % (height - horizon)) / (height - horizon);
