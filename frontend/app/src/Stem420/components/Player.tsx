@@ -31,6 +31,10 @@ export default function Player({ record, onClose }: PlayerProps) {
     [trackDeafenStates]
   );
 
+  const volumesRef = useRef<Record<string, number>>({});
+  const trackMuteStatesRef = useRef<Record<string, boolean>>({});
+  const trackDeafenStatesRef = useRef<Record<string, boolean>>({});
+
   const audioCtxRef = useRef<AudioContext | null>(null);
   const buffersRef = useRef<Record<string, AudioBuffer>>({});
   const gainNodesRef = useRef<Record<string, GainNode>>({});
@@ -68,6 +72,44 @@ export default function Player({ record, onClose }: PlayerProps) {
       return lookup;
     }, {});
   }, [tracks]);
+
+  useEffect(() => {
+    volumesRef.current = volumes;
+  }, [volumes]);
+
+  useEffect(() => {
+    trackMuteStatesRef.current = trackMuteStates;
+  }, [trackMuteStates]);
+
+  useEffect(() => {
+    trackDeafenStatesRef.current = trackDeafenStates;
+  }, [trackDeafenStates]);
+
+  const getEffectiveVolumeFromRefs = useCallback(
+    (trackId: string, baseVolume?: number) => {
+      const track = trackLookup[trackId];
+      const volume = baseVolume ?? volumesRef.current[trackId] ?? 1;
+
+      if (!track) {
+        return volume;
+      }
+
+      const isTrackMuted = trackMuteStatesRef.current[trackId];
+      const isTrackDeafened = trackDeafenStatesRef.current[trackId];
+      const isAnyDeafened = Object.values(trackDeafenStatesRef.current).some(Boolean);
+
+      if (isTrackMuted) {
+        return 0;
+      }
+
+      if (isAnyDeafened && !isTrackDeafened) {
+        return 0;
+      }
+
+      return volume;
+    },
+    [trackLookup]
+  );
 
   const getEffectiveVolume = useCallback(
     (trackId: string, baseVolume?: number) => {
@@ -250,7 +292,10 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         gainNodesRef.current[track.id] = gain;
         analyserNodesRef.current[track.id] = analyser;
-        applyEffectiveVolume(track.id, volumes[track.id]);
+        gain.gain.setValueAtTime(
+          getEffectiveVolumeFromRefs(track.id, volumesRef.current[track.id]),
+          context.currentTime
+        );
 
         setTrackDurations((previous) => {
           const next = { ...previous, [track.id]: audioBuffer.duration };
@@ -317,7 +362,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     return () => {
       isCancelled = true;
     };
-  }, [applyEffectiveVolume, ensureAudioContext, tracks, volumes]);
+  }, [ensureAudioContext, getEffectiveVolumeFromRefs, tracks]);
 
   useEffect(() => {
     tracks.forEach((track) => {
