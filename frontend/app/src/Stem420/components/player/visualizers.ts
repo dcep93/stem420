@@ -188,7 +188,7 @@ export function drawVisualizer({
     const dataArray = new Uint8Array(bufferLength);
     analyser.getByteFrequencyData(dataArray);
 
-    context.fillStyle = "#0a0d16";
+    context.fillStyle = "#050712";
     context.fillRect(0, 0, width, height);
 
     const columns = 16;
@@ -209,18 +209,42 @@ export function drawVisualizer({
 
         const average = binsPerCell > 0 ? sum / binsPerCell : 0;
         const intensity = average / 255;
-        const hue = 180 + intensity * 120;
-        const alpha = 0.15 + intensity * 0.6;
-        context.fillStyle = `hsla(${hue}, 70%, ${50 + intensity * 20}%, ${alpha})`;
-        const offsetY = Math.sin(currentTime * 2 + col * 0.3) * 4;
-        context.fillRect(
-          col * cellWidth + 1,
-          row * cellHeight + 1 + offsetY,
-          cellWidth - 2,
-          cellHeight - 2
-        );
+        const hue = 200 + intensity * 140 + col * 1.1;
+        const lightness = 45 + intensity * 40;
+        const alpha = 0.22 + intensity * 0.6;
+        const offsetY = Math.sin(currentTime * 2.4 + col * 0.4) * 6;
+        const x = col * cellWidth + 1;
+        const y = row * cellHeight + 1 + offsetY;
+
+        const gradient = context.createLinearGradient(x, y, x + cellWidth, y + cellHeight);
+        gradient.addColorStop(0, `hsla(${hue - 18}, 85%, ${lightness}%, ${alpha * 0.7})`);
+        gradient.addColorStop(1, `hsla(${hue + 18}, 90%, ${lightness + 8}%, ${alpha})`);
+
+        context.fillStyle = gradient;
+        context.shadowBlur = intensity * 16;
+        context.shadowColor = `hsla(${hue}, 95%, ${lightness + 10}%, ${0.4 + intensity * 0.4})`;
+        context.fillRect(x, y, cellWidth - 2, cellHeight - 2);
+
+        if (intensity > 0.45) {
+          context.strokeStyle = `hsla(${hue + 20}, 95%, ${lightness + 20}%, ${
+            0.25 + intensity * 0.35
+          })`;
+          context.lineWidth = 1.3;
+          context.strokeRect(x + 1.5, y + 1.5, cellWidth - 5, cellHeight - 5);
+        }
       }
     }
+
+    context.shadowBlur = 0;
+    context.globalCompositeOperation = "screen";
+    const sweepOffset = (currentTime * 0.8) % (cellWidth * 4);
+    const sweepGradient = context.createLinearGradient(sweepOffset, 0, sweepOffset + 160, 0);
+    sweepGradient.addColorStop(0, "rgba(80, 200, 255, 0)");
+    sweepGradient.addColorStop(0.5, "rgba(160, 255, 220, 0.25)");
+    sweepGradient.addColorStop(1, "rgba(255, 180, 255, 0)");
+    context.fillStyle = sweepGradient;
+    context.fillRect(0, 0, width, height);
+    context.globalCompositeOperation = "source-over";
 
     context.strokeStyle = "rgba(255, 255, 255, 0.04)";
     for (let x = 0; x <= width; x += cellWidth) {
@@ -296,6 +320,125 @@ export function drawVisualizer({
     context.lineWidth = 1.5;
     context.stroke();
     context.restore();
+  } else if (visualizerType === "prism-bloom") {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    context.fillStyle = "#03040b";
+    context.fillRect(0, 0, width, height);
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxRadius = Math.min(centerX, centerY) - 12;
+
+    context.save();
+    context.translate(centerX, centerY);
+
+    const rayCount = 28;
+    for (let ray = 0; ray < rayCount; ray++) {
+      const bandIndex = Math.floor((ray / rayCount) * (bufferLength - 1));
+      const magnitude = (dataArray[bandIndex] ?? 0) / 255;
+      const angle = ray * ((Math.PI * 2) / rayCount) + currentTime * 0.25;
+      const shardLength = 24 + magnitude * maxRadius;
+      const shardSpread = Math.PI / 40 + magnitude * 0.22;
+
+      context.beginPath();
+      context.arc(0, 0, shardLength, angle - shardSpread, angle + shardSpread);
+      context.strokeStyle = `hsla(${210 + magnitude * 120}, 90%, 70%, ${
+        0.25 + magnitude * 0.55
+      })`;
+      context.lineWidth = 2 + magnitude * 5;
+      context.shadowBlur = 8 + magnitude * 18;
+      context.shadowColor = `hsla(${210 + magnitude * 120}, 90%, 65%, 0.8)`;
+      context.stroke();
+
+      const starRadius = shardLength * 0.45;
+      context.beginPath();
+      context.arc(
+        Math.cos(angle) * starRadius,
+        Math.sin(angle) * starRadius,
+        2 + magnitude * 6,
+        0,
+        Math.PI * 2
+      );
+      context.fillStyle = `hsla(${260 + ray * 3}, 95%, 75%, ${
+        0.2 + magnitude * 0.5
+      })`;
+      context.fill();
+    }
+
+    context.shadowBlur = 0;
+
+    context.globalCompositeOperation = "lighter";
+    const haloBands = 5;
+    for (let band = 0; band < haloBands; band++) {
+      const progress = band / haloBands;
+      const radius = 16 + progress * maxRadius;
+      const pulse = (Math.sin(currentTime * 1.2 + band) + 1) / 2;
+      context.beginPath();
+      context.arc(0, 0, radius, 0, Math.PI * 2);
+      context.strokeStyle = `hsla(${180 + pulse * 120}, 80%, ${50 +
+        progress * 25}%, ${0.12 + pulse * 0.18})`;
+      context.lineWidth = 1 + pulse * 2;
+      context.stroke();
+    }
+    context.globalCompositeOperation = "source-over";
+
+    context.restore();
+  } else if (visualizerType === "cascade-horizon") {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    context.fillStyle = "#02060f";
+    context.fillRect(0, 0, width, height);
+
+    const layers = 8;
+    const baseLine = height - 10;
+    const sliceWidth = width / (bufferLength - 1);
+
+    for (let layer = 0; layer < layers; layer++) {
+      const depth = layer / layers;
+      const hue = 190 + depth * 120;
+      const glow = 4 + depth * 12;
+      const drift = currentTime * (0.4 + depth * 0.8);
+      const heightScale = 24 + depth * 90;
+
+      context.beginPath();
+      context.moveTo(0, baseLine);
+
+      for (let i = 0; i < bufferLength; i++) {
+        const v = (dataArray[i] ?? 0) / 255;
+        const wave = Math.sin(i * 0.05 + drift) * (6 + depth * 10);
+        const ridge = Math.sin(i * 0.12 - drift * 0.6) * (4 + depth * 6);
+        const y = baseLine - v * heightScale - depth * 26 + wave + ridge;
+        context.lineTo(i * sliceWidth, y);
+      }
+
+      context.lineTo(width, baseLine);
+      context.closePath();
+      context.fillStyle = `hsla(${hue}, 75%, ${28 + depth * 32}%, ${
+        0.15 + depth * 0.14
+      })`;
+      context.shadowBlur = glow;
+      context.shadowColor = `hsla(${hue}, 80%, 65%, 0.4)`;
+      context.fill();
+      context.strokeStyle = `hsla(${hue}, 90%, 72%, ${0.4 + depth * 0.25})`;
+      context.lineWidth = 1.4;
+      context.stroke();
+    }
+
+    context.shadowBlur = 0;
+    context.fillStyle = "rgba(255, 255, 255, 0.12)";
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * width;
+      const y = Math.random() * height * 0.6;
+      const size = Math.random() * 2 + 0.5;
+      context.beginPath();
+      context.arc(x, y, size, 0, Math.PI * 2);
+      context.fill();
+    }
   } else if (visualizerType === "nebula-trails") {
     const bufferLength = analyser.fftSize;
     const dataArray = new Uint8Array(bufferLength);
@@ -337,6 +480,463 @@ export function drawVisualizer({
       context.ellipse(x, y, size, size * 0.7, 0, 0, Math.PI * 2);
       context.fill();
     }
+  } else if (visualizerType === "ember-mandala") {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    context.fillStyle = "#0a060e";
+    context.fillRect(0, 0, width, height);
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxRadius = Math.min(centerX, centerY) - 12;
+
+    context.save();
+    context.translate(centerX, centerY);
+    const petalCount = 30;
+    for (let petal = 0; petal < petalCount; petal++) {
+      const binIndex = Math.floor((petal / petalCount) * (bufferLength - 1));
+      const magnitude = (dataArray[binIndex] ?? 0) / 255;
+      const angle = petal * ((Math.PI * 2) / petalCount) + currentTime * 0.35;
+      const spread = (Math.PI / petalCount) * (0.8 + magnitude * 1.2);
+      const innerRadius = 16 + magnitude * 36;
+      const outerRadius = maxRadius * (0.35 + magnitude * 0.55);
+
+      const tipX = Math.cos(angle) * outerRadius;
+      const tipY = Math.sin(angle) * outerRadius;
+      const leftX = Math.cos(angle - spread) * innerRadius;
+      const leftY = Math.sin(angle - spread) * innerRadius;
+      const rightX = Math.cos(angle + spread) * innerRadius;
+      const rightY = Math.sin(angle + spread) * innerRadius;
+
+      const hue = 20 + magnitude * 80 + petal * 1.2;
+      const glow = 6 + magnitude * 22;
+
+      const gradient = context.createLinearGradient(0, 0, tipX, tipY);
+      gradient.addColorStop(0, `hsla(${hue}, 85%, 65%, ${0.08 + magnitude * 0.35})`);
+      gradient.addColorStop(1, `hsla(${hue + 30}, 90%, 72%, ${0.2 + magnitude * 0.55})`);
+
+      context.beginPath();
+      context.moveTo(leftX, leftY);
+      context.quadraticCurveTo(tipX * 0.5, tipY * 0.5, tipX, tipY);
+      context.quadraticCurveTo(tipX * 0.5, tipY * 0.5, rightX, rightY);
+      context.closePath();
+      context.fillStyle = gradient;
+      context.shadowBlur = glow;
+      context.shadowColor = `hsla(${hue + 10}, 95%, 70%, ${0.4 + magnitude * 0.4})`;
+      context.fill();
+    }
+
+    context.shadowBlur = 0;
+    const ringCount = 4;
+    for (let ring = 0; ring < ringCount; ring++) {
+      const progress = ring / ringCount;
+      const radius = 10 + progress * maxRadius * 0.65;
+      const pulse = (Math.sin(currentTime * 1.6 + ring) + 1) / 2;
+      context.beginPath();
+      context.arc(0, 0, radius, 0, Math.PI * 2);
+      context.strokeStyle = `hsla(${progress * 80 + pulse * 30}, 80%, ${
+        55 + pulse * 20
+      }%, ${0.18 + pulse * 0.25})`;
+      context.lineWidth = 1.2 + pulse * 2.4;
+      context.stroke();
+    }
+
+    const emberCount = 28;
+    for (let i = 0; i < emberCount; i++) {
+      const t = (i / emberCount) * Math.PI * 2 + currentTime * 0.7;
+      const orbit = maxRadius * 0.45 + Math.sin(currentTime * 1.2 + i) * 12;
+      const magnitude = (dataArray[i % bufferLength] ?? 0) / 255;
+      const x = Math.cos(t) * orbit;
+      const y = Math.sin(t) * orbit;
+      const size = 2 + magnitude * 6;
+      context.beginPath();
+      context.arc(x, y, size, 0, Math.PI * 2);
+      context.fillStyle = `hsla(${40 + magnitude * 120}, 90%, 70%, ${0.5 + magnitude * 0.4})`;
+      context.fill();
+    }
+
+    context.restore();
+  } else if (visualizerType === "hippie-mirage") {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const waveformArray = new Uint8Array(analyser.fftSize);
+    analyser.getByteFrequencyData(dataArray);
+    analyser.getByteTimeDomainData(waveformArray);
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxRadius = Math.min(centerX, centerY) - 10;
+
+    const hueDrift = currentTime * 30;
+    const bgGradient = context.createRadialGradient(centerX, centerY, 18, centerX, centerY, maxRadius);
+    bgGradient.addColorStop(0, `hsla(${(hueDrift + 280) % 360}, 70%, 60%, 0.5)`);
+    bgGradient.addColorStop(0.4, `hsla(${(hueDrift + 200) % 360}, 80%, 52%, 0.35)`);
+    bgGradient.addColorStop(1, "#070910");
+
+    context.fillStyle = bgGradient;
+    context.fillRect(0, 0, width, height);
+
+    context.save();
+    context.translate(centerX, centerY);
+
+    const petals = 16;
+    for (let ring = 0; ring < 32; ring++) {
+      const t = ring / 32;
+      const index = Math.floor(t * (bufferLength - 1));
+      const magnitude = (dataArray[index] ?? 0) / 255;
+      const radius = 30 + t * maxRadius * 0.95 + Math.sin(currentTime * 1.6 + ring) * (6 + magnitude * 12);
+      const hue = (hueDrift + t * 180 + magnitude * 80) % 360;
+      const wobble = Math.sin(currentTime * 2.1 + ring * 0.7) * 0.2;
+
+      context.beginPath();
+      for (let p = 0; p < petals; p++) {
+        const angle = (p / petals) * Math.PI * 2 + t * 3 + currentTime * 0.4;
+        const pulse = 1 + Math.sin(angle * 2 + ring * 0.4) * 0.12 + magnitude * 0.35;
+        const r = radius * pulse * (1 + wobble * Math.sin(angle * 4));
+        const x = Math.cos(angle) * r;
+        const y = Math.sin(angle) * r;
+        if (p === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
+      }
+      context.closePath();
+      context.fillStyle = `hsla(${hue}, 85%, ${45 + magnitude * 30}%, ${0.16 + magnitude * 0.35})`;
+      context.shadowBlur = 12 + magnitude * 18;
+      context.shadowColor = `hsla(${hue}, 90%, 70%, 0.55)`;
+      context.fill();
+    }
+
+    context.shadowBlur = 0;
+    const trailCount = 48;
+    for (let i = 0; i < trailCount; i++) {
+      const angle = (i / trailCount) * Math.PI * 2 + currentTime * 0.9;
+      const waveIndex = Math.floor((i / trailCount) * (waveformArray.length - 1));
+      const waveLevel = ((waveformArray[waveIndex] ?? 128) - 128) / 128;
+      const radius = maxRadius * 0.2 + (i / trailCount) * maxRadius * 0.75 + waveLevel * 18;
+      const size = 2.2 + Math.abs(waveLevel) * 6;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      context.beginPath();
+      context.arc(x, y, size, 0, Math.PI * 2);
+      context.fillStyle = `hsla(${(hueDrift + i * 6) % 360}, 90%, 70%, ${0.3 + Math.abs(waveLevel) * 0.4})`;
+      context.fill();
+    }
+
+    context.globalAlpha = 0.5;
+    context.rotate(Math.sin(currentTime * 0.5) * 0.4);
+    for (let band = 0; band < 6; band++) {
+      const gradient = context.createLinearGradient(-maxRadius, 0, maxRadius, 0);
+      const hue = (hueDrift + band * 50) % 360;
+      gradient.addColorStop(0, `hsla(${hue}, 80%, 60%, 0)`);
+      gradient.addColorStop(0.5, `hsla(${hue + 40}, 90%, 65%, 0.35)`);
+      gradient.addColorStop(1, `hsla(${hue + 80}, 80%, 55%, 0)`);
+      context.fillStyle = gradient;
+      const y = -maxRadius + band * (maxRadius / 3) + Math.sin(currentTime * 1.4 + band) * 14;
+      context.fillRect(-maxRadius, y, maxRadius * 2, maxRadius / 2);
+    }
+
+    context.restore();
+  } else if (visualizerType === "hollow-echoes") {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    context.fillStyle = "#0a0c10";
+    context.fillRect(0, 0, width, height);
+
+    const columns = 24;
+    const columnWidth = width / columns;
+    const maxHeight = height - 30;
+
+    for (let col = 0; col < columns; col++) {
+      const startIndex = Math.floor((col / columns) * bufferLength);
+      const value = (dataArray[startIndex] ?? 0) / 255;
+      const columnHeight = value * maxHeight;
+      const baseX = col * columnWidth + columnWidth * 0.15;
+      const hue = 210 + value * 120 + col * 1.2;
+
+      context.fillStyle = `hsla(${hue}, 80%, 62%, 0.18)`;
+      context.fillRect(baseX, height - columnHeight, columnWidth * 0.7, columnHeight);
+
+      const hollowHeight = columnHeight * 0.45;
+      const hollowY = height - columnHeight + columnHeight * 0.25;
+      context.strokeStyle = `hsla(${hue}, 90%, 75%, ${0.5 + value * 0.4})`;
+      context.lineWidth = 2;
+      context.strokeRect(
+        baseX + 3,
+        hollowY,
+        columnWidth * 0.7 - 6,
+        hollowHeight
+      );
+
+      const echoCount = 3;
+      for (let e = 0; e < echoCount; e++) {
+        const inset = e * 4;
+        const opacity = 0.14 + value * 0.2 - e * 0.03;
+        context.strokeStyle = `hsla(${hue + e * 6}, 85%, 70%, ${opacity})`;
+        context.strokeRect(
+          baseX + 3 + inset,
+          hollowY + inset * 1.4,
+          columnWidth * 0.7 - 6 - inset * 2,
+          hollowHeight - inset * 2.4
+        );
+      }
+    }
+
+    context.fillStyle = "rgba(255, 255, 255, 0.08)";
+    context.font = "11px sans-serif";
+    context.fillText("Harmonic cavities", 10, 18);
+  } else if (visualizerType === "opal-current") {
+    const bufferLength = analyser.fftSize;
+    const timeData = new Uint8Array(bufferLength);
+    analyser.getByteTimeDomainData(timeData);
+
+    context.fillStyle = "#04070f";
+    context.fillRect(0, 0, width, height);
+
+    const ribbonCount = 5;
+    const sliceWidth = width / bufferLength;
+    for (let ribbon = 0; ribbon < ribbonCount; ribbon++) {
+      const depth = ribbon / ribbonCount;
+      const offsetY = height * (0.3 + depth * 0.5);
+      const flow = currentTime * (1 + depth * 0.4);
+      const hue = 180 + depth * 80;
+
+      context.beginPath();
+      for (let i = 0; i < bufferLength; i++) {
+        const v = (timeData[i] ?? 128) / 128 - 1;
+        const shimmer = Math.sin(i * 0.05 + flow) * (10 + depth * 14);
+        const y = offsetY + shimmer + v * (height * 0.18 - depth * 10);
+        const x = i * sliceWidth;
+        if (i === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
+      }
+
+      const opacity = 0.18 + (1 - depth) * 0.16;
+      const gradient = context.createLinearGradient(0, offsetY - 40, width, offsetY + 40);
+      gradient.addColorStop(0, `hsla(${hue - 30}, 80%, 60%, ${opacity})`);
+      gradient.addColorStop(1, `hsla(${hue + 40}, 90%, 70%, ${opacity + 0.1})`);
+
+      context.strokeStyle = gradient;
+      context.lineWidth = 2.2 - depth * 0.4;
+      context.shadowBlur = 10 + (1 - depth) * 12;
+      context.shadowColor = `hsla(${hue + 10}, 90%, 75%, 0.4)`;
+      context.stroke();
+
+      context.shadowBlur = 0;
+      context.fillStyle = `hsla(${hue}, 85%, 55%, ${opacity * 0.55})`;
+      context.fill();
+    }
+
+    context.shadowBlur = 0;
+    context.globalCompositeOperation = "lighter";
+    context.fillStyle = "rgba(255, 255, 255, 0.06)";
+    for (let i = 0; i < 26; i++) {
+      const x = ((i + currentTime * 12) % 26) * (width / 26);
+      const y = height * (0.18 + Math.sin(currentTime * 1.3 + i) * 0.08);
+      const size = 2 + Math.sin(currentTime * 2 + i) * 1.5;
+      context.beginPath();
+      context.ellipse(x, y, size * 1.4, size * 0.9, 0, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.globalCompositeOperation = "source-over";
+  } else if (visualizerType === "solstice-waves") {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    context.fillStyle = "#08090f";
+    context.fillRect(0, 0, width, height);
+
+    const horizon = height * 0.62;
+    const sunRadius = height * 0.16;
+    const glow = Math.sin(currentTime * 1.4) * 0.5 + 0.5;
+
+    context.beginPath();
+    context.arc(width / 2, horizon, sunRadius, 0, Math.PI * 2);
+    context.fillStyle = `hsla(${40 + glow * 30}, 95%, ${55 + glow * 15}%, ${
+      0.45 + glow * 0.25
+    })`;
+    context.shadowBlur = 25 + glow * 35;
+    context.shadowColor = "rgba(255, 200, 120, 0.65)";
+    context.fill();
+    context.shadowBlur = 0;
+
+    const layerCount = 5;
+    const sliceWidth = width / (bufferLength - 1);
+    for (let layer = 0; layer < layerCount; layer++) {
+      const depth = layer / layerCount;
+      const amplitude = 10 + depth * 24;
+      const drift = currentTime * (0.8 + depth * 0.6);
+      const hue = 200 + depth * 80;
+
+      context.beginPath();
+      context.moveTo(0, horizon + depth * 26);
+      for (let i = 0; i < bufferLength; i++) {
+        const v = (dataArray[i] ?? 0) / 255;
+        const y =
+          horizon + depth * 26 + Math.sin(i * 0.08 + drift) * amplitude - v * 28;
+        context.lineTo(i * sliceWidth, y);
+      }
+      context.lineTo(width, height);
+      context.lineTo(0, height);
+      context.closePath();
+      context.fillStyle = `hsla(${hue}, 75%, ${35 + depth * 20}%, ${
+        0.12 + depth * 0.18
+      })`;
+      context.strokeStyle = `hsla(${hue}, 85%, 65%, ${0.25 + depth * 0.2})`;
+      context.lineWidth = 1.6;
+      context.shadowBlur = 6 + depth * 12;
+      context.shadowColor = `hsla(${hue}, 85%, 65%, 0.5)`;
+      context.fill();
+      context.stroke();
+    }
+
+    context.shadowBlur = 0;
+    context.fillStyle = "rgba(255, 255, 255, 0.08)";
+    context.fillRect(0, horizon, width, height - horizon);
+  } else if (visualizerType === "ripple-weave") {
+    const bufferLength = analyser.fftSize;
+    const timeData = new Uint8Array(bufferLength);
+    analyser.getByteTimeDomainData(timeData);
+
+    context.fillStyle = "#060a11";
+    context.fillRect(0, 0, width, height);
+
+    const ribbonCount = 3;
+    const sliceWidth = width / bufferLength;
+    for (let ribbon = 0; ribbon < ribbonCount; ribbon++) {
+      const offsetY = height * (0.25 + ribbon * 0.25);
+      const phase = ribbon * 0.8 + currentTime * (0.8 + ribbon * 0.3);
+      context.beginPath();
+      for (let i = 0; i < bufferLength; i++) {
+        const v = (timeData[i] ?? 128) / 128 - 1;
+        const ripple = Math.sin(i * 0.04 + phase) * 18;
+        const y = offsetY + ripple + v * (height * 0.2 - ribbon * 8);
+        const x = i * sliceWidth;
+        if (i === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
+      }
+      const hue = 180 + ribbon * 60;
+      context.strokeStyle = `hsla(${hue}, 85%, 65%, 0.8)`;
+      context.lineWidth = 2.2 - ribbon * 0.4;
+      context.shadowBlur = 8 + ribbon * 6;
+      context.shadowColor = `hsla(${hue}, 85%, 65%, 0.6)`;
+      context.stroke();
+
+      context.shadowBlur = 0;
+      context.fillStyle = `hsla(${hue}, 85%, 60%, 0.08)`;
+      context.fill();
+    }
+
+    context.shadowBlur = 0;
+    context.fillStyle = "rgba(255, 255, 255, 0.06)";
+    for (let i = 0; i < 24; i++) {
+      const x = (i / 24) * width;
+      const y = height * 0.12 + Math.sin(currentTime * 1.2 + i * 0.4) * 6;
+      context.fillRect(x, y, 2, height * 0.76);
+    }
+  } else if (visualizerType === "echo-lantern") {
+    const frequencyBins = analyser.frequencyBinCount;
+    const frequencyData = new Uint8Array(frequencyBins);
+    analyser.getByteFrequencyData(frequencyData);
+
+    const timeBufferLength = analyser.fftSize;
+    const timeDomainData = new Uint8Array(timeBufferLength);
+    analyser.getByteTimeDomainData(timeDomainData);
+
+    context.fillStyle = "#03060e";
+    context.fillRect(0, 0, width, height);
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxRadius = Math.min(centerX, centerY) - 12;
+
+    context.save();
+    context.translate(centerX, centerY);
+
+    const beaconPulse = (Math.sin(currentTime * 1.4) + 1) / 2;
+    const lanternRadius = 10 + beaconPulse * 8;
+    context.beginPath();
+    context.arc(0, 0, lanternRadius, 0, Math.PI * 2);
+    context.fillStyle = `hsla(${40 + beaconPulse * 20}, 95%, 65%, 0.4)`;
+    context.shadowBlur = 18 + beaconPulse * 30;
+    context.shadowColor = "rgba(255, 200, 120, 0.85)";
+    context.fill();
+
+    context.shadowBlur = 0;
+    const rings = 7;
+    for (let ring = 0; ring < rings; ring++) {
+      const progress = ring / rings;
+      const radius = 16 + progress * maxRadius;
+      const binIndex = Math.floor(progress * (frequencyBins - 1));
+      const intensity = (frequencyData[binIndex] ?? 0) / 255;
+      const flicker = Math.sin(currentTime * 3 + ring) * 0.08;
+
+      context.beginPath();
+      context.arc(0, 0, radius, 0, Math.PI * 2);
+      context.strokeStyle = `hsla(${180 + intensity * 120}, 80%, ${50 +
+        intensity * 30}%, ${0.18 + intensity * 0.4 + flicker})`;
+      context.lineWidth = 1.3 + intensity * 3.5;
+      context.shadowBlur = 8 + intensity * 18;
+      context.shadowColor = `hsla(${180 + intensity * 120}, 90%, 70%, 0.75)`;
+      context.stroke();
+    }
+
+    context.shadowBlur = 0;
+    context.beginPath();
+    const sliceWidth = (Math.PI * 2) / timeBufferLength;
+    const orbitRadius = maxRadius * 0.55;
+    for (let i = 0; i < timeBufferLength; i++) {
+      const v = (timeDomainData[i] ?? 128) / 128 - 1;
+      const angle = i * sliceWidth + currentTime * 0.5;
+      const radialDrift = orbitRadius + v * maxRadius * 0.25;
+      const x = Math.cos(angle) * radialDrift;
+      const y = Math.sin(angle) * radialDrift;
+      if (i === 0) {
+        context.moveTo(x, y);
+      } else {
+        context.lineTo(x, y);
+      }
+    }
+    context.closePath();
+    context.fillStyle = "rgba(255, 255, 255, 0.07)";
+    context.strokeStyle = "rgba(255, 255, 255, 0.35)";
+    context.lineWidth = 1.8;
+    context.fill();
+    context.stroke();
+
+    const orbiters = 5;
+    for (let orb = 0; orb < orbiters; orb++) {
+      const angle =
+        currentTime * (0.8 + orb * 0.2) + orb * ((Math.PI * 2) / orbiters);
+      const bandIndex = Math.floor((orb / orbiters) * (frequencyBins - 1));
+      const intensity = (frequencyData[bandIndex] ?? 0) / 255;
+      const radius = orbitRadius + Math.sin(currentTime * 1.2 + orb) * 10;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+
+      context.beginPath();
+      context.arc(x, y, 4 + intensity * 6, 0, Math.PI * 2);
+      context.fillStyle = `hsla(${40 + intensity * 60}, 95%, 70%, ${
+        0.5 + intensity * 0.4
+      })`;
+      context.shadowBlur = 12 + intensity * 20;
+      context.shadowColor = `hsla(${40 + intensity * 60}, 95%, 70%, 0.8)`;
+      context.fill();
+    }
+
+    context.restore();
   } else {
     const totalWindowSeconds = PAST_WINDOW_SECONDS + FUTURE_WINDOW_SECONDS;
     const baseY = height - 24;

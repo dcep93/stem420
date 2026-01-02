@@ -11,7 +11,16 @@ export type VisualizerType =
   | "mirror-peaks"
   | "pulse-grid"
   | "luminous-orbit"
-  | "nebula-trails";
+  | "prism-bloom"
+  | "cascade-horizon"
+  | "nebula-trails"
+  | "echo-lantern"
+  | "ember-mandala"
+  | "hippie-mirage"
+  | "hollow-echoes"
+  | "opal-current"
+  | "solstice-waves"
+  | "ripple-weave";
 
 export type PlayerProps = {
   record: CachedOutputRecord;

@@ -22,6 +22,7 @@ const visualizerOptions: Array<{
   label: string;
   hint: string;
 }> = [
+  { value: "time-ribbon", label: "Time Ribbon", hint: "Amplitude Timeline" },
   { value: "laser-ladders", label: "Laser Ladders", hint: "Graphic EQ" },
   { value: "spectrum-safari", label: "Spectrum Safari", hint: "Analyzer" },
   {
@@ -33,8 +34,16 @@ const visualizerOptions: Array<{
   { value: "mirror-peaks", label: "Mirror Peaks", hint: "Symmetric Bars" },
   { value: "pulse-grid", label: "Pulse Grid", hint: "Energy Matrix" },
   { value: "luminous-orbit", label: "Luminous Orbit", hint: "Layered Rings" },
+  { value: "prism-bloom", label: "Prism Bloom", hint: "Radiant Arcs" },
+  { value: "cascade-horizon", label: "Cascade Horizon", hint: "Layered Terrain" },
   { value: "nebula-trails", label: "Nebula Trails", hint: "Shimmering Path" },
-  { value: "time-ribbon", label: "Time Ribbon", hint: "Amplitude Timeline" },
+  { value: "echo-lantern", label: "Echo Lantern", hint: "Glowing Ripples" },
+  { value: "ember-mandala", label: "Ember Mandala", hint: "Radiant Petals" },
+  { value: "hippie-mirage", label: "Hippie Mirage", hint: "Tie-Dye Bloom" },
+  { value: "hollow-echoes", label: "Hollow Echoes", hint: "Stacked Pillars" },
+  { value: "opal-current", label: "Opal Current", hint: "Opalescent Waves" },
+  { value: "solstice-waves", label: "Solstice Waves", hint: "Solar Horizon" },
+  { value: "ripple-weave", label: "Ripple Weave", hint: "Braided Ribbons" },
 ];
 
 export default function Player({ record, onClose }: PlayerProps) {
@@ -49,7 +58,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     Record<string, number>
   >({});
   const [visualizerType, setVisualizerType] =
-    useState<VisualizerType>("laser-ladders");
+    useState<VisualizerType>("time-ribbon");
   const [trackMuteStates, setTrackMuteStates] = useState<
     Record<string, boolean>
   >({});
