@@ -14,9 +14,7 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [trackDurations, setTrackDurations] = useState<Record<string, number>>(
-    {}
-  );
+  const [trackDurations, setTrackDurations] = useState<Record<string, number>>({});
   const [volumes, setVolumes] = useState<Record<string, number>>({});
   const [amplitudeEnvelopes, setAmplitudeEnvelopes] = useState<
     Record<string, number[]>
@@ -24,31 +22,26 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [amplitudeMaximums, setAmplitudeMaximums] = useState<
     Record<string, number>
   >({});
-  const [visualizerType, setVisualizerType] =
-    useState<VisualizerType>("laser-ladders");
+  const [visualizerType, setVisualizerType] = useState<VisualizerType>("laser-ladders");
   const [trackMuteStates, setTrackMuteStates] = useState<Record<string, boolean>>({});
-  const [trackDeafenStates, setTrackDeafenStates] =
-    useState<Record<string, boolean>>({});
+  const [trackDeafenStates, setTrackDeafenStates] = useState<Record<string, boolean>>({});
   const isAnyTrackDeafened = useMemo(
     () => Object.values(trackDeafenStates).some(Boolean),
     [trackDeafenStates]
   );
 
-  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  const durationMap = useRef<Record<string, number>>({});
-  const audioContexts = useRef<Record<string, AudioContext | null>>({});
-  const analyserNodes = useRef<Record<string, AnalyserNode | null>>({});
-  const sourceNodes = useRef<
-    Record<string, MediaElementAudioSourceNode | null>
-  >({});
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const buffersRef = useRef<Record<string, AudioBuffer>>({});
+  const gainNodesRef = useRef<Record<string, GainNode>>({});
+  const analyserNodesRef = useRef<Record<string, AnalyserNode>>({});
+  const sourcesRef = useRef<Record<string, AudioBufferSourceNode>>({});
   const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
-  const animationFrameRef = useRef<number | null>(null);
-  const syncAnimationFrameRef = useRef<number | null>(null);
-  const suppressSyncUntilRef = useRef<number>(0);
-  const seekingRef = useRef(false);
-  const isPlayingRef = useRef(false);
+  const drawAnimationFrameRef = useRef<number | null>(null);
+  const timeAnimationFrameRef = useRef<number | null>(null);
   const isDraggingSeekRef = useRef(false);
   const pendingSeekRef = useRef<number | null>(null);
+  const startAtCtxTimeRef = useRef(0);
+  const startOffsetRef = useRef(0);
 
   const tracks = useMemo<Track[]>(() => {
     return record.files
@@ -66,7 +59,6 @@ export default function Player({ record, onClose }: PlayerProps) {
   }, [record]);
 
   const primaryTrack = tracks.find((track) => track.isInput) ?? tracks[0];
-  const primaryTrackId = primaryTrack?.id ?? null;
   const playerTitle = primaryTrack?.name ?? "Playback";
 
   const trackLookup = useMemo(() => {
@@ -101,25 +93,78 @@ export default function Player({ record, onClose }: PlayerProps) {
     [isAnyTrackDeafened, trackDeafenStates, trackLookup, trackMuteStates, volumes]
   );
 
+  const ensureAudioContext = useCallback(() => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new AudioContext();
+    }
+
+    return audioCtxRef.current;
+  }, []);
+
+  const stopAllSources = useCallback(() => {
+    Object.values(sourcesRef.current).forEach((source) => {
+      try {
+        source.stop();
+      } catch (error) {
+        console.warn("Failed to stop source", error);
+      }
+      source.disconnect();
+    });
+
+    sourcesRef.current = {};
+  }, []);
+
+  const applyEffectiveVolume = useCallback(
+    (trackId: string, baseVolume?: number) => {
+      const context = audioCtxRef.current ?? ensureAudioContext();
+      const gainNode = gainNodesRef.current[trackId];
+
+      if (!context || !gainNode) {
+        return;
+      }
+
+      const targetVolume = getEffectiveVolume(trackId, baseVolume);
+      const now = context.currentTime;
+
+      gainNode.gain.setTargetAtTime(targetVolume, now, 0.01);
+    },
+    [ensureAudioContext, getEffectiveVolume]
+  );
+
+  const currentPlaybackTime = useCallback(() => {
+    const context = audioCtxRef.current;
+
+    if (!context) {
+      return startOffsetRef.current;
+    }
+
+    if (isPlaying) {
+      return (
+        context.currentTime - startAtCtxTimeRef.current + startOffsetRef.current
+      );
+    }
+
+    return startOffsetRef.current;
+  }, [isPlaying]);
+
   useEffect(() => {
-    const audioContextsSnapshot = audioContexts.current;
+    const audioContextSnapshot = audioCtxRef.current;
 
     return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (drawAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(drawAnimationFrameRef.current);
       }
 
-      if (syncAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(syncAnimationFrameRef.current);
+      if (timeAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(timeAnimationFrameRef.current);
       }
 
-      Object.values(audioContextsSnapshot).forEach((context) => {
-        context?.close().catch((error) => {
-          console.error("Failed to close audio context", error);
-        });
+      stopAllSources();
+      audioContextSnapshot?.close().catch((error) => {
+        console.error("Failed to close audio context", error);
       });
     };
-  }, []);
+  }, [stopAllSources]);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -136,33 +181,82 @@ export default function Player({ record, onClose }: PlayerProps) {
     setIsPlaying(false);
     setTrackMuteStates({});
     setTrackDeafenStates({});
-    durationMap.current = {};
+    setAmplitudeEnvelopes({});
+    setAmplitudeMaximums({});
+    startOffsetRef.current = 0;
+    startAtCtxTimeRef.current = 0;
+    stopAllSources();
+    buffersRef.current = {};
+    gainNodesRef.current = {};
+    analyserNodesRef.current = {};
 
-    const audioRefsSnapshot = audioRefs.current;
+    const tracksSnapshot = tracks;
 
     return () => {
-      tracks.forEach((track) => {
+      tracksSnapshot.forEach((track) => {
         URL.revokeObjectURL(track.url);
-        const audio = audioRefsSnapshot[track.id];
-
-        if (audio) {
-          audio.pause();
-        }
       });
     };
     /* eslint-enable react-hooks/set-state-in-effect */
+  }, [stopAllSources, tracks]);
+
+  useEffect(() => {
+    const activeIds = new Set(tracks.map((track) => track.id));
+
+    Object.entries(gainNodesRef.current).forEach(([id, gainNode]) => {
+      if (!activeIds.has(id)) {
+        gainNode.disconnect();
+        delete gainNodesRef.current[id];
+      }
+    });
+
+    Object.entries(analyserNodesRef.current).forEach(([id, analyser]) => {
+      if (!activeIds.has(id)) {
+        analyser.disconnect();
+        delete analyserNodesRef.current[id];
+      }
+    });
+
+    Object.keys(buffersRef.current).forEach((id) => {
+      if (!activeIds.has(id)) {
+        delete buffersRef.current[id];
+      }
+    });
   }, [tracks]);
 
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
     let isCancelled = false;
-    const analysisContext = new AudioContext();
+    const context = ensureAudioContext();
 
     const analyzeTrack = async (track: Track) => {
       try {
-        const audioBuffer = await analysisContext.decodeAudioData(
+        const audioBuffer = await context.decodeAudioData(
           (await track.blob.arrayBuffer()).slice(0)
         );
+
+        if (isCancelled) {
+          return;
+        }
+
+        buffersRef.current[track.id] = audioBuffer;
+        const gain = context.createGain();
+        const analyser = context.createAnalyser();
+
+        analyser.fftSize = 2048;
+        gain.connect(analyser);
+        analyser.connect(context.destination);
+
+        gainNodesRef.current[track.id] = gain;
+        analyserNodesRef.current[track.id] = analyser;
+        applyEffectiveVolume(track.id, volumes[track.id]);
+
+        setTrackDurations((previous) => {
+          const next = { ...previous, [track.id]: audioBuffer.duration };
+          const durations = Object.values(next);
+          const maxDuration = durations.length ? Math.max(...durations) : 0;
+          setDuration(Number.isFinite(maxDuration) ? maxDuration : 0);
+          return next;
+        });
 
         const windowSize = Math.max(
           1,
@@ -207,316 +301,20 @@ export default function Player({ record, onClose }: PlayerProps) {
       }
     };
 
-    setAmplitudeEnvelopes({});
-    setAmplitudeMaximums({});
     tracks.forEach((track) => {
       void analyzeTrack(track);
     });
 
     return () => {
       isCancelled = true;
-      void analysisContext.close();
     };
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [tracks]);
+  }, [applyEffectiveVolume, ensureAudioContext, tracks, volumes]);
 
   useEffect(() => {
     tracks.forEach((track) => {
-      const audio = audioRefs.current[track.id];
-
-      if (!audio) {
-        return;
-      }
-
-      audio.volume = getEffectiveVolume(track.id);
+      applyEffectiveVolume(track.id);
     });
-  }, [getEffectiveVolume, tracks]);
-
-  useEffect(() => {
-    if (!primaryTrackId) {
-      return;
-    }
-
-    const primaryAudio = audioRefs.current[primaryTrackId];
-
-    if (!primaryAudio) {
-      return;
-    }
-
-    const handleLoadedMetadata = () => {
-      durationMap.current[primaryTrackId] = primaryAudio.duration;
-      setTrackDurations((previous) => ({
-        ...previous,
-        [primaryTrackId]: primaryAudio.duration,
-      }));
-      const durations = Object.values(durationMap.current);
-      const maxDuration = durations.length
-        ? Math.max(...durations)
-        : primaryAudio.duration;
-
-      setDuration(Number.isFinite(maxDuration) ? maxDuration : 0);
-    };
-
-    const handleEnded = () => {
-      setIsPlaying(false);
-    };
-
-    primaryAudio.addEventListener("loadedmetadata", handleLoadedMetadata);
-    primaryAudio.addEventListener("ended", handleEnded);
-
-    return () => {
-      primaryAudio.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      primaryAudio.removeEventListener("ended", handleEnded);
-    };
-  }, [primaryTrackId]);
-
-  useEffect(() => {
-    const cleanups = tracks.map((track) => {
-      const audio = audioRefs.current[track.id];
-
-      if (!audio) {
-        return undefined;
-      }
-
-      const handleMetadata = () => {
-        durationMap.current[track.id] = audio.duration;
-        setTrackDurations((previous) => ({
-          ...previous,
-          [track.id]: audio.duration,
-        }));
-        const durations = Object.values(durationMap.current);
-        const maxDuration = durations.length ? Math.max(...durations) : 0;
-        setDuration(Number.isFinite(maxDuration) ? maxDuration : 0);
-      };
-
-      audio.addEventListener("loadedmetadata", handleMetadata);
-
-      return () => {
-        audio.removeEventListener("loadedmetadata", handleMetadata);
-      };
-    });
-
-    return () => {
-      cleanups.forEach((cleanup) => cleanup && cleanup());
-    };
-  }, [tracks]);
-
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-
-    if (!isPlaying) {
-      Object.values(audioRefs.current).forEach((audio) => {
-        if (audio) {
-          audio.playbackRate = 1;
-        }
-      });
-    }
-  }, [isPlaying]);
-
-  useEffect(() => {
-    if (!primaryTrackId) {
-      return undefined;
-    }
-
-    const syncTracks = () => {
-      const primaryAudio = audioRefs.current[primaryTrackId];
-
-      if (!primaryAudio) {
-        syncAnimationFrameRef.current = null;
-        return;
-      }
-
-      setCurrentTime(primaryAudio.currentTime);
-
-      const now = performance.now();
-      const suppressSync = seekingRef.current || now < suppressSyncUntilRef.current;
-
-      Object.entries(audioRefs.current).forEach(([id, audio]) => {
-        if (!audio || id === primaryTrackId) {
-          return;
-        }
-
-        const drift = audio.currentTime - primaryAudio.currentTime;
-        const absDrift = Math.abs(drift);
-
-        if (!isPlayingRef.current || suppressSync) {
-          audio.playbackRate = 1;
-          return;
-        }
-
-        if (absDrift > 0.05) {
-          audio.currentTime = primaryAudio.currentTime;
-          audio.playbackRate = 1;
-          return;
-        }
-
-        if (absDrift > 0.01) {
-          const ratio = Math.min(absDrift, 0.05) / 0.05;
-          const adjustment = ratio * 0.02;
-          const direction = drift > 0 ? -1 : 1;
-          const nextRate = Math.min(
-            1.02,
-            Math.max(0.98, 1 + direction * adjustment)
-          );
-
-          audio.playbackRate = nextRate;
-          return;
-        }
-
-        audio.playbackRate = 1;
-      });
-
-      syncAnimationFrameRef.current = requestAnimationFrame(syncTracks);
-    };
-
-    if (isPlaying) {
-      syncAnimationFrameRef.current = requestAnimationFrame(syncTracks);
-    } else if (syncAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(syncAnimationFrameRef.current);
-      syncAnimationFrameRef.current = null;
-    }
-
-    return () => {
-      if (syncAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(syncAnimationFrameRef.current);
-        syncAnimationFrameRef.current = null;
-      }
-    };
-  }, [isPlaying, primaryTrackId, tracks]);
-
-  useEffect(() => {
-    const cleanups = tracks.map((track) => {
-      if (track.id === primaryTrackId) {
-        return undefined;
-      }
-
-      const audio = audioRefs.current[track.id];
-
-      if (!audio) {
-        return undefined;
-      }
-
-      const handleRecovery = () => {
-        const primaryAudio = primaryTrackId
-          ? audioRefs.current[primaryTrackId]
-          : null;
-
-        if (!primaryAudio || !isPlayingRef.current) {
-          return;
-        }
-
-        const drift = audio.currentTime - primaryAudio.currentTime;
-
-        if (Math.abs(drift) > 0.03) {
-          audio.currentTime = primaryAudio.currentTime;
-          audio.playbackRate = 1;
-        }
-      };
-
-      audio.addEventListener("playing", handleRecovery);
-      audio.addEventListener("canplay", handleRecovery);
-
-      return () => {
-        audio.removeEventListener("playing", handleRecovery);
-        audio.removeEventListener("canplay", handleRecovery);
-      };
-    });
-
-    return () => {
-      cleanups.forEach((cleanup) => cleanup && cleanup());
-    };
-  }, [primaryTrackId, tracks]);
-
-  useEffect(() => {
-    const activeIds = new Set(tracks.map((track) => track.id));
-
-    Object.keys(audioContexts.current).forEach((id) => {
-      if (activeIds.has(id)) {
-        return;
-      }
-
-      audioContexts.current[id]?.close().catch((error) => {
-        console.error("Failed to close audio context", error);
-      });
-      delete audioContexts.current[id];
-      delete analyserNodes.current[id];
-      delete sourceNodes.current[id];
-      delete canvasRefs.current[id];
-    });
-
-    const ensureAnalyser = (track: Track) => {
-      const audio = audioRefs.current[track.id];
-
-      if (!audio) {
-        return null;
-      }
-
-      const existingAnalyser = analyserNodes.current[track.id];
-
-      if (existingAnalyser) {
-        const context = audioContexts.current[track.id];
-
-        if (context?.state === "suspended") {
-          void context.resume();
-        }
-
-        return existingAnalyser;
-      }
-
-      const context = new AudioContext();
-      const source = context.createMediaElementSource(audio);
-      const analyser = context.createAnalyser();
-
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      analyser.connect(context.destination);
-
-      audioContexts.current[track.id] = context;
-      analyserNodes.current[track.id] = analyser;
-      sourceNodes.current[track.id] = source;
-
-      return analyser;
-    };
-
-    const draw = () => {
-      tracks.forEach((track) => {
-        const analyser = ensureAnalyser(track);
-        const canvas = canvasRefs.current[track.id];
-        const audio = audioRefs.current[track.id];
-
-        if (!analyser || !canvas || !audio) {
-          return;
-        }
-
-        const sampleRate = audioContexts.current[track.id]?.sampleRate ?? 44100;
-        drawVisualizer({
-          analyser,
-          canvas,
-          audio,
-          visualizerType,
-          amplitudeEnvelope: amplitudeEnvelopes[track.id],
-          amplitudeMaximum: amplitudeMaximums[track.id],
-          sampleRate,
-        });
-      });
-
-      animationFrameRef.current = requestAnimationFrame(draw);
-    };
-
-
-    animationFrameRef.current = requestAnimationFrame(draw);
-
-    return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [
-    tracks,
-    visualizerType,
-    amplitudeEnvelopes,
-    amplitudeMaximums,
-  ]);
+  }, [applyEffectiveVolume, getEffectiveVolume, tracks]);
 
   useEffect(() => {
     const resizeCanvases = () => {
@@ -542,106 +340,128 @@ export default function Player({ record, onClose }: PlayerProps) {
     };
   }, [tracks]);
 
+  useEffect(() => {
+    const draw = () => {
+      const sampleRate = audioCtxRef.current?.sampleRate ?? 44100;
+      const playbackTime = currentPlaybackTime();
+
+      tracks.forEach((track) => {
+        const analyser = analyserNodesRef.current[track.id];
+        const canvas = canvasRefs.current[track.id];
+
+        if (!analyser || !canvas) {
+          return;
+        }
+
+        drawVisualizer({
+          analyser,
+          canvas,
+          visualizerType,
+          amplitudeEnvelope: amplitudeEnvelopes[track.id],
+          amplitudeMaximum: amplitudeMaximums[track.id],
+          sampleRate,
+          currentTime: playbackTime,
+          duration: duration || 0,
+        });
+      });
+
+      drawAnimationFrameRef.current = requestAnimationFrame(draw);
+    };
+
+    drawAnimationFrameRef.current = requestAnimationFrame(draw);
+
+    return () => {
+      if (drawAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(drawAnimationFrameRef.current);
+      }
+    };
+  }, [
+    amplitudeEnvelopes,
+    amplitudeMaximums,
+    currentPlaybackTime,
+    duration,
+    tracks,
+    visualizerType,
+  ]);
+
+  useEffect(() => {
+    const updateTime = () => {
+      const playbackTime = currentPlaybackTime();
+      setCurrentTime(Math.min(duration || playbackTime, playbackTime));
+
+      if (isPlaying && duration && playbackTime >= duration) {
+        stopAllSources();
+        startOffsetRef.current = duration;
+        setIsPlaying(false);
+      }
+
+      timeAnimationFrameRef.current = requestAnimationFrame(updateTime);
+    };
+
+    timeAnimationFrameRef.current = requestAnimationFrame(updateTime);
+
+    return () => {
+      if (timeAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(timeAnimationFrameRef.current);
+      }
+    };
+  }, [currentPlaybackTime, duration, isPlaying, stopAllSources]);
+
+  const schedulePlayback = useCallback(
+    async (offsetSeconds: number) => {
+      if (!tracks.length) {
+        return;
+      }
+
+      const readyTracks = tracks.filter(
+        (track) => buffersRef.current[track.id] && gainNodesRef.current[track.id]
+      );
+
+      if (!readyTracks.length) {
+        return;
+      }
+
+      const context = ensureAudioContext();
+      await context.resume();
+      const startAt = context.currentTime + 0.02;
+      const newSources: Record<string, AudioBufferSourceNode> = {};
+
+      readyTracks.forEach((track) => {
+        const buffer = buffersRef.current[track.id];
+        const gainNode = gainNodesRef.current[track.id];
+
+        if (!buffer || !gainNode) {
+          return;
+        }
+
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(gainNode);
+        source.start(startAt, offsetSeconds);
+        newSources[track.id] = source;
+      });
+
+      sourcesRef.current = newSources;
+      startAtCtxTimeRef.current = startAt;
+      setIsPlaying(true);
+    },
+    [ensureAudioContext, tracks]
+  );
+
   const commitSeek = useCallback(
     async (targetTime: number) => {
-      if (!primaryTrackId) {
-        setCurrentTime(targetTime);
-        return;
-      }
+      const clampedTime = Math.max(0, Math.min(targetTime, duration || 0));
 
-      seekingRef.current = true;
-      suppressSyncUntilRef.current = performance.now() + 250;
-      const wasPlaying = isPlayingRef.current;
-
-      Object.values(audioRefs.current).forEach((audio) => {
-        if (!audio) {
-          return;
-        }
-
-        audio.pause();
-        audio.playbackRate = 1;
-      });
-
-      const seekPromises = Object.values(audioRefs.current).map((audio) => {
-        if (!audio) {
-          return Promise.resolve();
-        }
-
-        return new Promise<void>((resolve) => {
-          const handleSeeked = () => {
-            finalize();
-          };
-
-          const timeoutId = window.setTimeout(handleSeeked, 500);
-
-          const finalize = () => {
-            window.clearTimeout(timeoutId);
-
-            audio.removeEventListener("seeked", handleSeeked);
-            audio.removeEventListener("error", handleSeeked);
-            resolve();
-          };
-
-          audio.addEventListener("seeked", handleSeeked);
-          audio.addEventListener("error", handleSeeked);
-
-          audio.currentTime = targetTime;
-        });
-      });
-
-      await Promise.all(seekPromises);
-
-      seekingRef.current = false;
-      suppressSyncUntilRef.current = performance.now() + 250;
-
-      const primaryAudio = audioRefs.current[primaryTrackId];
-
-      setCurrentTime(targetTime);
-
-      if (!primaryAudio) {
-        return;
-      }
-
-      if (wasPlaying) {
-        try {
-          await primaryAudio.play();
-        } catch (error) {
-          console.error("Failed to resume primary track after seek", error);
-          setIsPlaying(false);
-          return;
-        }
-
-        const secondaryPromises = Object.entries(audioRefs.current).map(
-          async ([id, audio]) => {
-            if (!audio || id === primaryTrackId) {
-              return;
-            }
-
-            audio.currentTime = primaryAudio.currentTime;
-            audio.playbackRate = 1;
-
-            try {
-              await audio.play();
-            } catch (error) {
-              console.error("Failed to resume track after seek", error);
-            }
-          }
-        );
-
-        await Promise.all(secondaryPromises);
-        setIsPlaying(true);
+      if (isPlaying) {
+        stopAllSources();
+        startOffsetRef.current = clampedTime;
+        await schedulePlayback(clampedTime);
       } else {
-        Object.values(audioRefs.current).forEach((audio) => {
-          if (!audio) {
-            return;
-          }
-
-          audio.currentTime = targetTime;
-          audio.playbackRate = 1;
-        });
+        startOffsetRef.current = clampedTime;
+        setCurrentTime(clampedTime);
       }
     },
-    [primaryTrackId]
+    [duration, isPlaying, schedulePlayback, stopAllSources]
   );
 
   const handleSeekChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -670,50 +490,31 @@ export default function Player({ record, onClose }: PlayerProps) {
   };
 
   const handlePlayPause = async () => {
-    if (!primaryTrackId) {
+    if (!tracks.length) {
       return;
     }
 
-    const nextPlaying = !isPlaying;
+    if (isPlaying) {
+      const context = audioCtxRef.current;
 
-    if (!nextPlaying) {
-      setIsPlaying(false);
-      Object.values(audioRefs.current).forEach((audio) => audio?.pause());
-      return;
-    }
-
-    const playPromises = tracks.map((track) => {
-      const audio = audioRefs.current[track.id];
-
-      if (!audio) {
-        return Promise.resolve();
+      if (!context) {
+        setIsPlaying(false);
+        return;
       }
 
-      audio.currentTime = currentTime;
-      audio.volume = getEffectiveVolume(track.id);
-
-      return audio.play();
-    });
-
-    try {
-      await Promise.all(playPromises);
-      setIsPlaying(true);
-    } catch (error) {
-      console.error("Failed to play audio", error);
+      startOffsetRef.current =
+        context.currentTime - startAtCtxTimeRef.current + startOffsetRef.current;
+      stopAllSources();
       setIsPlaying(false);
+      return;
     }
+
+    await schedulePlayback(startOffsetRef.current);
   };
 
   const handleVolumeChange = (trackId: string, value: number) => {
     setVolumes((previous) => ({ ...previous, [trackId]: value }));
-    const audio = audioRefs.current[trackId];
-    const track = trackLookup[trackId];
-
-    if (!audio || !track) {
-      return;
-    }
-
-    audio.volume = getEffectiveVolume(trackId, value);
+    applyEffectiveVolume(trackId, value);
   };
 
   const toggleTrackMute = (trackId: string) => {
@@ -721,11 +522,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       ...previous,
       [trackId]: !previous[trackId],
     }));
-    const audio = audioRefs.current[trackId];
-
-    if (audio) {
-      audio.volume = getEffectiveVolume(trackId);
-    }
+    applyEffectiveVolume(trackId);
   };
 
   const toggleTrackDeafen = (trackId: string) => {
@@ -733,11 +530,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       ...previous,
       [trackId]: !previous[trackId],
     }));
-    const audio = audioRefs.current[trackId];
-
-    if (audio) {
-      audio.volume = getEffectiveVolume(trackId);
-    }
+    applyEffectiveVolume(trackId);
   };
 
   const formattedTime = (time: number) => {
@@ -847,9 +640,6 @@ export default function Player({ record, onClose }: PlayerProps) {
               onToggleDeafen={toggleTrackDeafen}
               registerCanvas={(ref) => {
                 canvasRefs.current[track.id] = ref;
-              }}
-              registerAudio={(ref) => {
-                audioRefs.current[track.id] = ref;
               }}
             />
           );

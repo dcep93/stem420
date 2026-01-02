@@ -8,7 +8,8 @@ import {
 export type VisualizerInputs = {
   analyser: AnalyserNode;
   canvas: HTMLCanvasElement;
-  audio: HTMLAudioElement;
+  currentTime: number;
+  duration: number;
   visualizerType: VisualizerType;
   amplitudeEnvelope?: number[];
   amplitudeMaximum?: number;
@@ -18,7 +19,8 @@ export type VisualizerInputs = {
 export function drawVisualizer({
   analyser,
   canvas,
-  audio,
+  currentTime,
+  duration,
   visualizerType,
   amplitudeEnvelope,
   amplitudeMaximum = 1,
@@ -33,10 +35,9 @@ export function drawVisualizer({
   const { width, height } = canvas;
   context.clearRect(0, 0, width, height);
 
-  const timeDisplay = `${audio.currentTime.toFixed(2)}s / ${Math.max(
-    audio.duration,
-    0
-  ).toFixed(2)}s`;
+  const timeDisplay = `${currentTime.toFixed(2)}s / ${Math.max(duration, 0).toFixed(
+    2
+  )}s`;
 
   context.fillStyle = "#0a0a0a";
   context.fillRect(0, 0, width, height);
@@ -139,7 +140,7 @@ export function drawVisualizer({
     for (let i = 0; i < bufferLength; i++) {
       const magnitude = dataArray[i] ?? 0;
       const normalized = magnitude / 255;
-      const angle = (i / bufferLength) * sweepAngle + audio.currentTime * 0.6;
+      const angle = (i / bufferLength) * sweepAngle + currentTime * 0.6;
       const radius = normalized * maxRadius;
       const x = Math.cos(angle) * radius;
       const y = Math.sin(angle) * radius;
@@ -211,7 +212,7 @@ export function drawVisualizer({
         const hue = 180 + intensity * 120;
         const alpha = 0.15 + intensity * 0.6;
         context.fillStyle = `hsla(${hue}, 70%, ${50 + intensity * 20}%, ${alpha})`;
-        const offsetY = Math.sin(audio.currentTime * 2 + col * 0.3) * 4;
+        const offsetY = Math.sin(currentTime * 2 + col * 0.3) * 4;
         context.fillRect(
           col * cellWidth + 1,
           row * cellHeight + 1 + offsetY,
@@ -275,7 +276,7 @@ export function drawVisualizer({
     }
 
     context.shadowBlur = 0;
-    context.rotate(audio.currentTime * 0.2);
+    context.rotate(currentTime * 0.2);
     context.beginPath();
     const orbitTrail = Math.min(bufferLength, 180);
     for (let i = 0; i < orbitTrail; i++) {
@@ -305,7 +306,7 @@ export function drawVisualizer({
 
     const centerY = height / 2;
     const sliceWidth = width / bufferLength;
-    const hueShift = (audio.currentTime * 40) % 360;
+    const hueShift = (currentTime * 40) % 360;
 
     context.beginPath();
     for (let i = 0; i < bufferLength; i++) {
@@ -399,7 +400,7 @@ export function drawVisualizer({
 
     for (let x = 0; x <= width; x += 2) {
       const timeOffset = (x / width) * totalWindowSeconds - PAST_WINDOW_SECONDS;
-      const sampleTime = audio.currentTime + timeOffset;
+      const sampleTime = currentTime + timeOffset;
       const amplitude =
         sampleTime >= 0 ? amplitudeAtTime(sampleTime) : amplitudeAtTime(0);
       const normalized = Math.min(1, amplitude / amplitudeMaximum);

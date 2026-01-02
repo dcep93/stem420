@@ -10,7 +10,6 @@ type TrackRowProps = {
   onToggleMute: (trackId: string) => void;
   onToggleDeafen: (trackId: string) => void;
   registerCanvas: (canvas: HTMLCanvasElement | null) => void;
-  registerAudio: (audio: HTMLAudioElement | null) => void;
 };
 
 export function TrackRow({
@@ -23,7 +22,6 @@ export function TrackRow({
   onToggleMute,
   onToggleDeafen,
   registerCanvas,
-  registerAudio,
 }: TrackRowProps) {
   const label = track.isInput ? `Input: ${track.name}` : `Output: ${track.name}`;
 
@@ -72,7 +70,6 @@ export function TrackRow({
           }}
         />
       </div>
-      <audio ref={registerAudio} src={track.url} preload="auto" />
     </div>
   );
 }
