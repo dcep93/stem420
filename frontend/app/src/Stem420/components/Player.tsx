@@ -115,7 +115,7 @@ export default function Player({ record, onClose }: PlayerProps) {
           return;
         }
 
-        if (Math.abs(audio.currentTime - primaryAudio.currentTime) > 0.05) {
+        if (Math.abs(audio.currentTime - primaryAudio.currentTime) > 0.01) {
           audio.currentTime = primaryAudio.currentTime;
         }
       });
