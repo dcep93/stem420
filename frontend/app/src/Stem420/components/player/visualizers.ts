@@ -569,10 +569,17 @@ export function drawVisualizer({
     const centerY = height / 2;
     const maxRadius = Math.min(centerX, centerY) - 10;
 
-    const hueDrift = currentTime * 30;
-    const bgGradient = context.createRadialGradient(centerX, centerY, 18, centerX, centerY, maxRadius);
-    bgGradient.addColorStop(0, `hsla(${(hueDrift + 280) % 360}, 70%, 60%, 0.5)`);
-    bgGradient.addColorStop(0.4, `hsla(${(hueDrift + 200) % 360}, 80%, 52%, 0.35)`);
+    const hueDrift = currentTime * 18;
+    const bgGradient = context.createRadialGradient(
+      centerX,
+      centerY,
+      16,
+      centerX,
+      centerY,
+      maxRadius
+    );
+    bgGradient.addColorStop(0, `hsla(${(hueDrift + 260) % 360}, 70%, 60%, 0.45)`);
+    bgGradient.addColorStop(0.55, `hsla(${(hueDrift + 190) % 360}, 75%, 54%, 0.3)`);
     bgGradient.addColorStop(1, "#070910");
 
     context.fillStyle = bgGradient;
@@ -581,20 +588,24 @@ export function drawVisualizer({
     context.save();
     context.translate(centerX, centerY);
 
-    const petals = 16;
-    for (let ring = 0; ring < 32; ring++) {
-      const t = ring / 32;
+    const petals = 12;
+    const ringCount = 16;
+    for (let ring = 0; ring < ringCount; ring++) {
+      const t = ring / ringCount;
       const index = Math.floor(t * (bufferLength - 1));
       const magnitude = (dataArray[index] ?? 0) / 255;
-      const radius = 30 + t * maxRadius * 0.95 + Math.sin(currentTime * 1.6 + ring) * (6 + magnitude * 12);
-      const hue = (hueDrift + t * 180 + magnitude * 80) % 360;
-      const wobble = Math.sin(currentTime * 2.1 + ring * 0.7) * 0.2;
+      const radius =
+        32 +
+        t * maxRadius * 0.9 +
+        Math.sin(currentTime * 1.2 + ring * 0.8) * (4 + magnitude * 10);
+      const hue = (hueDrift + t * 200 + magnitude * 90) % 360;
+      const wobble = Math.sin(currentTime * 1.7 + ring * 0.6) * 0.16;
 
       context.beginPath();
       for (let p = 0; p < petals; p++) {
-        const angle = (p / petals) * Math.PI * 2 + t * 3 + currentTime * 0.4;
-        const pulse = 1 + Math.sin(angle * 2 + ring * 0.4) * 0.12 + magnitude * 0.35;
-        const r = radius * pulse * (1 + wobble * Math.sin(angle * 4));
+        const angle = (p / petals) * Math.PI * 2 + t * 2.4 + currentTime * 0.35;
+        const pulse = 1 + Math.sin(angle * 1.6 + ring * 0.3) * 0.1 + magnitude * 0.3;
+        const r = radius * pulse * (1 + wobble * Math.sin(angle * 3));
         const x = Math.cos(angle) * r;
         const y = Math.sin(angle) * r;
         if (p === 0) {
@@ -604,39 +615,46 @@ export function drawVisualizer({
         }
       }
       context.closePath();
-      context.fillStyle = `hsla(${hue}, 85%, ${45 + magnitude * 30}%, ${0.16 + magnitude * 0.35})`;
-      context.shadowBlur = 12 + magnitude * 18;
-      context.shadowColor = `hsla(${hue}, 90%, 70%, 0.55)`;
+      context.fillStyle = `hsla(${hue}, 82%, ${46 + magnitude * 26}%, ${
+        0.14 + magnitude * 0.28
+      })`;
+      context.shadowBlur = 6 + magnitude * 10;
+      context.shadowColor = `hsla(${hue}, 88%, 70%, 0.35)`;
       context.fill();
     }
 
     context.shadowBlur = 0;
-    const trailCount = 48;
+    const trailCount = 28;
     for (let i = 0; i < trailCount; i++) {
-      const angle = (i / trailCount) * Math.PI * 2 + currentTime * 0.9;
+      const angle = (i / trailCount) * Math.PI * 2 + currentTime * 0.7;
       const waveIndex = Math.floor((i / trailCount) * (waveformArray.length - 1));
       const waveLevel = ((waveformArray[waveIndex] ?? 128) - 128) / 128;
-      const radius = maxRadius * 0.2 + (i / trailCount) * maxRadius * 0.75 + waveLevel * 18;
-      const size = 2.2 + Math.abs(waveLevel) * 6;
+      const radius =
+        maxRadius * 0.25 + (i / trailCount) * maxRadius * 0.65 + waveLevel * 12;
+      const size = 1.8 + Math.abs(waveLevel) * 4;
       const x = Math.cos(angle) * radius;
       const y = Math.sin(angle) * radius;
       context.beginPath();
       context.arc(x, y, size, 0, Math.PI * 2);
-      context.fillStyle = `hsla(${(hueDrift + i * 6) % 360}, 90%, 70%, ${0.3 + Math.abs(waveLevel) * 0.4})`;
+      context.fillStyle = `hsla(${(hueDrift + i * 5) % 360}, 88%, 72%, ${
+        0.28 + Math.abs(waveLevel) * 0.35
+      })`;
       context.fill();
     }
 
-    context.globalAlpha = 0.5;
-    context.rotate(Math.sin(currentTime * 0.5) * 0.4);
-    for (let band = 0; band < 6; band++) {
+    context.globalAlpha = 0.55;
+    context.rotate(Math.sin(currentTime * 0.45) * 0.32);
+    const bandCount = 4;
+    for (let band = 0; band < bandCount; band++) {
       const gradient = context.createLinearGradient(-maxRadius, 0, maxRadius, 0);
-      const hue = (hueDrift + band * 50) % 360;
-      gradient.addColorStop(0, `hsla(${hue}, 80%, 60%, 0)`);
-      gradient.addColorStop(0.5, `hsla(${hue + 40}, 90%, 65%, 0.35)`);
-      gradient.addColorStop(1, `hsla(${hue + 80}, 80%, 55%, 0)`);
+      const hue = (hueDrift + band * 60) % 360;
+      gradient.addColorStop(0, `hsla(${hue}, 75%, 60%, 0)`);
+      gradient.addColorStop(0.5, `hsla(${hue + 30}, 85%, 64%, 0.3)`);
+      gradient.addColorStop(1, `hsla(${hue + 70}, 75%, 58%, 0)`);
       context.fillStyle = gradient;
-      const y = -maxRadius + band * (maxRadius / 3) + Math.sin(currentTime * 1.4 + band) * 14;
-      context.fillRect(-maxRadius, y, maxRadius * 2, maxRadius / 2);
+      const y =
+        -maxRadius + band * (maxRadius / 2.2) + Math.sin(currentTime * 1.1 + band) * 10;
+      context.fillRect(-maxRadius, y, maxRadius * 2, maxRadius / 2.6);
     }
 
     context.restore();
