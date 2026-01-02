@@ -5,6 +5,12 @@ import {
   type VisualizerType,
 } from "./types";
 
+const cachedPerformanceMode = true;
+
+function isLowPowerMode(): boolean {
+  return cachedPerformanceMode;
+}
+
 export type VisualizerInputs = {
   analyser: AnalyserNode;
   canvas: HTMLCanvasElement;
@@ -33,6 +39,7 @@ export function drawVisualizer({
   }
 
   const { width, height } = canvas;
+  const performanceMode = isLowPowerMode();
   context.clearRect(0, 0, width, height);
 
   const timeDisplay = `${currentTime.toFixed(2)}s / ${Math.max(duration, 0).toFixed(
@@ -1008,9 +1015,10 @@ export function drawVisualizer({
     const timeData = new Uint8Array(timeLength);
     analyser.getByteTimeDomainData(timeData);
 
+    const detailScale = performanceMode ? 0.6 : 1;
     const centerX = width / 2;
     const centerY = height / 2;
-    const maxRadius = Math.hypot(width, height) * 0.75;
+    const maxRadius = Math.hypot(width, height) * (performanceMode ? 0.6 : 0.75);
 
     const bassEnergy =
       freqLength > 0
@@ -1035,9 +1043,9 @@ export function drawVisualizer({
     context.translate(centerX, centerY);
     context.rotate(Math.sin(currentTime * 0.25) * 0.12);
 
-    const arms = 4;
-    const loops = 5;
-    const segments = 220;
+    const arms = performanceMode ? 3 : 4;
+    const loops = performanceMode ? 3 : 5;
+    const segments = Math.max(140, Math.floor(220 * detailScale));
     const spiralStrength = 0.7 + totalEnergy * 0.8;
     const musicSpin = 0.35 + totalEnergy * 1.2 + bassEnergy * 0.8;
     const spinNoise = (seed: number) => {
@@ -1080,7 +1088,7 @@ export function drawVisualizer({
 
       context.save();
       context.globalCompositeOperation = "screen";
-      const sparks = 48;
+      const sparks = performanceMode ? 24 : 48;
       for (let i = 0; i < sparks; i++) {
         const t = i / sparks;
         const sparkRadius = (0.1 + t * 1.1) * maxRadius;
@@ -1224,10 +1232,11 @@ export function drawVisualizer({
 
     const centerX = width / 2;
     const centerY = height / 2;
-    const slices = 14;
+    const detailScale = performanceMode ? 0.65 : 1;
+    const slices = Math.max(8, Math.floor(14 * detailScale));
     const sweep = (Math.PI * 2) / slices;
     const maxRadius = Math.sqrt(width * width + height * height) / 2;
-    const pulse = 1 + Math.sin(currentTime * 2.2) * 0.08 + energy * 0.4;
+    const pulse = 1 + Math.sin(currentTime * 2.2) * 0.08 + energy * (performanceMode ? 0.28 : 0.4);
 
     const bg = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius);
     bg.addColorStop(0, "#090916");
@@ -1243,9 +1252,12 @@ export function drawVisualizer({
       context.rotate(sliceIndex * sweep + currentTime * 0.25 + energy * 0.4);
       context.beginPath();
       context.moveTo(0, 0);
-      for (let i = 0; i < bufferLength; i += 2) {
+      for (let i = 0; i < bufferLength; i += performanceMode ? 4 : 2) {
         const magnitude = (frequencyData[i] ?? 0) / 255;
-        const radialPulse = 0.8 + Math.sin(currentTime * 1.6 + i * 0.02) * 0.15 + energy * 0.5;
+        const radialPulse =
+          (performanceMode ? 0.7 : 0.8) +
+          Math.sin(currentTime * 1.6 + i * 0.02) * 0.15 +
+          energy * (performanceMode ? 0.35 : 0.5);
         const radius = magnitude * maxRadius * pulse * radialPulse;
         const angle = (i / bufferLength) * sweep * 1.6;
         const xPos = Math.cos(angle) * radius;
@@ -1270,7 +1282,7 @@ export function drawVisualizer({
     }
 
     context.globalCompositeOperation = "screen";
-    const tileSize = Math.max(width, height) / 6;
+    const tileSize = Math.max(width, height) / (performanceMode ? 4.5 : 6);
     for (let yTile = -1; yTile < height / tileSize + 1; yTile++) {
       for (let xTile = -1; xTile < width / tileSize + 1; xTile++) {
         const offset = Math.sin(currentTime + xTile + yTile) * tileSize * 0.2;
@@ -1279,7 +1291,7 @@ export function drawVisualizer({
         context.rotate(((xTile + yTile) % 2 === 0 ? 1 : -1) * (Math.PI / 4));
         const tileHue = (energy * 220 + (xTile + yTile) * 14 + currentTime * 60) % 360;
         context.strokeStyle = `hsla(${tileHue}, 90%, 70%, 0.18)`;
-        context.lineWidth = 2;
+        context.lineWidth = performanceMode ? 1.5 : 2;
         context.beginPath();
         context.moveTo(-tileSize, 0);
         context.lineTo(0, tileSize);
