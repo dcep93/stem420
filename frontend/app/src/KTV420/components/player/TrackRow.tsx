@@ -27,7 +27,9 @@ export function TrackRow({
   onToggleDeafen,
   registerCanvas,
 }: TrackRowProps) {
-  const label = track.isInput ? `Input: ${track.name}` : `Output: ${track.name}`;
+  const label = track.isInput
+    ? `Input: ${track.name}`
+    : `Output: ${track.name}`;
 
   const controlButtonStyle = (isActive: boolean): CSSProperties => ({
     borderRadius: "999px",
@@ -64,10 +66,12 @@ export function TrackRow({
         <input
           type="range"
           min={0}
-          max={1}
+          max={2}
           step={0.01}
           value={volume}
-          onChange={(event) => onVolumeChange(track.id, Number(event.target.value))}
+          onChange={(event) =>
+            onVolumeChange(track.id, Number(event.target.value))
+          }
           style={{ flex: 1, minWidth: "160px", maxWidth: "360px" }}
         />
         <div style={{ display: "flex", gap: "0.4rem" }}>
@@ -87,7 +91,9 @@ export function TrackRow({
           >
             {isDeafened ? "Undeafen" : "Deafen"}
           </button>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
+          >
             <span style={{ color: "#cbd5e1", fontWeight: 600 }}>Wah</span>
             <input
               type="range"
@@ -95,7 +101,9 @@ export function TrackRow({
               max={1}
               step={0.01}
               value={wahValue}
-              onChange={(event) => onWahChange(track.id, Number(event.target.value))}
+              onChange={(event) =>
+                onWahChange(track.id, Number(event.target.value))
+              }
               style={{ width: "120px" }}
             />
           </label>
