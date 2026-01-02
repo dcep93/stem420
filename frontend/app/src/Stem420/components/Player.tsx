@@ -25,6 +25,7 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [visualizerType, setVisualizerType] = useState<VisualizerType>("laser-ladders");
   const [trackMuteStates, setTrackMuteStates] = useState<Record<string, boolean>>({});
   const [trackDeafenStates, setTrackDeafenStates] = useState<Record<string, boolean>>({});
+  const [readyTrackIds, setReadyTrackIds] = useState<string[]>([]);
   const isAnyTrackDeafened = useMemo(
     () => Object.values(trackDeafenStates).some(Boolean),
     [trackDeafenStates]
@@ -179,6 +180,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     setDuration(0);
     setTrackDurations({});
     setIsPlaying(false);
+    setReadyTrackIds([]);
     setTrackMuteStates({});
     setTrackDeafenStates({});
     setAmplitudeEnvelopes({});
@@ -296,6 +298,13 @@ export default function Player({ record, onClose }: PlayerProps) {
           ...previous,
           [track.id]: envelope,
         }));
+        setReadyTrackIds((previous) => {
+          if (previous.includes(track.id)) {
+            return previous;
+          }
+
+          return [...previous, track.id];
+        });
       } catch (error) {
         console.error("Failed to analyze track envelope", track.name, error);
       }
@@ -353,16 +362,20 @@ export default function Player({ record, onClose }: PlayerProps) {
           return;
         }
 
-        drawVisualizer({
-          analyser,
-          canvas,
-          visualizerType,
-          amplitudeEnvelope: amplitudeEnvelopes[track.id],
-          amplitudeMaximum: amplitudeMaximums[track.id],
-          sampleRate,
-          currentTime: playbackTime,
-          duration: duration || 0,
-        });
+        try {
+          drawVisualizer({
+            analyser,
+            canvas,
+            visualizerType,
+            amplitudeEnvelope: amplitudeEnvelopes[track.id],
+            amplitudeMaximum: amplitudeMaximums[track.id],
+            sampleRate,
+            currentTime: playbackTime,
+            duration: duration || 0,
+          });
+        } catch (error) {
+          console.error("Failed to draw visualizer", track.name, error);
+        }
       });
 
       drawAnimationFrameRef.current = requestAnimationFrame(draw);
@@ -387,7 +400,15 @@ export default function Player({ record, onClose }: PlayerProps) {
   useEffect(() => {
     const updateTime = () => {
       const playbackTime = currentPlaybackTime();
-      setCurrentTime(Math.min(duration || playbackTime, playbackTime));
+      if (isDraggingSeekRef.current) {
+        const pendingTime = pendingSeekRef.current;
+
+        if (pendingTime !== null) {
+          setCurrentTime(Math.min(duration || pendingTime, pendingTime));
+        }
+      } else {
+        setCurrentTime(Math.min(duration || playbackTime, playbackTime));
+      }
 
       if (isPlaying && duration && playbackTime >= duration) {
         stopAllSources();
@@ -542,6 +563,8 @@ export default function Player({ record, onClose }: PlayerProps) {
     return `${minutes}:${seconds}`;
   };
 
+  const areTracksReady = tracks.length > 0 && readyTrackIds.length === tracks.length;
+
   if (!tracks.length) {
     return null;
   }
@@ -592,8 +615,12 @@ export default function Player({ record, onClose }: PlayerProps) {
         </span>
       </div>
       <div style={{ marginTop: "0.5rem" }}>
-        <button type="button" onClick={() => void handlePlayPause()}>
-          {isPlaying ? "Pause" : "Play"}
+        <button
+          type="button"
+          onClick={() => void handlePlayPause()}
+          disabled={!areTracksReady}
+        >
+          {isPlaying ? "Pause" : areTracksReady ? "Play" : "Loading..."}
         </button>
       </div>
       <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
