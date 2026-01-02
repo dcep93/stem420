@@ -22,8 +22,8 @@ export type VisualizerType =
   | "solstice-waves"
   | "ripple-weave"
   | "ectoplasm"
-  | "static-shock"
-  | "snowstorm"
+  | "super-time-ribbon"
+  | "prismatic-turbine"
   | "kaleidoscope"
   | "highway"
   | "delay-pedal";

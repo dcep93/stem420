@@ -67,6 +67,22 @@ export function drawVisualizer({
     const dataArray = new Uint8Array(bufferLength);
     analyser.getByteFrequencyData(dataArray);
     const sliceWidth = width / bufferLength;
+    let peakIndex = 0;
+    let peakValue = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+      const value = dataArray[i] ?? 0;
+      if (value > peakValue) {
+        peakValue = value;
+        peakIndex = i;
+      }
+    }
+
+    const nyquist = sampleRate / 2;
+    const dominantFrequency = bufferLength > 0 ? (peakIndex / bufferLength) * nyquist : 0;
+    const hue = Math.max(0, Math.min(280, (dominantFrequency / 2000) * 280));
+    const strokeColor = `hsl(${hue}, 80%, 60%)`;
+    const fillColor = `hsla(${hue}, 80%, 60%, 0.12)`;
     context.beginPath();
     let x = 0;
 
@@ -81,10 +97,10 @@ export function drawVisualizer({
       x += sliceWidth;
     }
 
-    context.strokeStyle = "#f2b705";
+    context.strokeStyle = strokeColor;
     context.lineWidth = 2;
     context.stroke();
-    context.fillStyle = "rgba(242, 183, 5, 0.15)";
+    context.fillStyle = fillColor;
     context.fill();
   } else if (visualizerType === "waveform-waterline") {
     const bufferLength = analyser.fftSize;
@@ -658,6 +674,34 @@ export function drawVisualizer({
     }
 
     context.restore();
+
+    // canvas-wide tie-dye sweeps
+    const stripCount = 7;
+    const slice = width / waveformArray.length;
+    context.globalCompositeOperation = "screen";
+    for (let strip = 0; strip < stripCount; strip++) {
+      const verticalOffset = (strip / stripCount) * height;
+      const drift = Math.sin(currentTime * 0.9 + strip) * height * 0.06;
+      context.beginPath();
+      for (let i = 0; i < waveformArray.length; i += 3) {
+        const v = ((waveformArray[i] ?? 128) - 128) / 128;
+        const x = i * slice;
+        const y = verticalOffset + drift + v * height * 0.12;
+        if (i === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
+      }
+      const hue = (hueDrift + strip * 40) % 360;
+      context.strokeStyle = `hsla(${hue}, 85%, 70%, 0.25)`;
+      context.lineWidth = 6;
+      context.shadowBlur = 10;
+      context.shadowColor = `hsla(${hue}, 85%, 65%, 0.4)`;
+      context.stroke();
+    }
+    context.shadowBlur = 0;
+    context.globalCompositeOperation = "source-over";
   } else if (visualizerType === "hollow-echoes") {
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
@@ -956,334 +1000,495 @@ export function drawVisualizer({
 
     context.restore();
   } else if (visualizerType === "ectoplasm") {
-    const bufferLength = analyser.fftSize;
-    const timeData = new Uint8Array(bufferLength);
-    analyser.getByteTimeDomainData(timeData);
+    const freqLength = analyser.frequencyBinCount;
+    const frequencyData = new Uint8Array(freqLength);
+    analyser.getByteFrequencyData(frequencyData);
 
-    context.fillStyle = "#05070d";
-    context.fillRect(0, 0, width, height);
+    const timeLength = analyser.fftSize;
+    const timeData = new Uint8Array(timeLength);
+    analyser.getByteTimeDomainData(timeData);
 
     const centerX = width / 2;
     const centerY = height / 2;
-    const maxRadius = Math.min(centerX, centerY) - 10;
+    const maxRadius = Math.hypot(width, height) * 0.75;
 
-    const gradient = context.createRadialGradient(
-      centerX,
-      centerY,
-      12,
-      centerX,
-      centerY,
-      maxRadius
-    );
-    gradient.addColorStop(0, "rgba(120, 255, 200, 0.16)");
-    gradient.addColorStop(0.5, "rgba(60, 200, 140, 0.09)");
-    gradient.addColorStop(1, "rgba(20, 80, 60, 0.1)");
+    const bassEnergy =
+      freqLength > 0
+        ? frequencyData
+            .slice(0, Math.max(1, Math.floor(freqLength / 8)))
+            .reduce((sum, value) => sum + value, 0) /
+          (Math.max(1, Math.floor(freqLength / 8)) * 255)
+        : 0;
+    const totalEnergy =
+      freqLength > 0
+        ? frequencyData.reduce((sum, value) => sum + value, 0) / (freqLength * 255)
+        : 0;
 
-    context.fillStyle = gradient;
+    const bg = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius);
+    bg.addColorStop(0, "rgba(4, 12, 20, 0.9)");
+    bg.addColorStop(0.4, "rgba(10, 12, 28, 0.82)");
+    bg.addColorStop(1, "rgba(2, 4, 10, 1)");
+    context.fillStyle = bg;
     context.fillRect(0, 0, width, height);
 
     context.save();
     context.translate(centerX, centerY);
+    context.rotate(Math.sin(currentTime * 0.25) * 0.12);
 
-    const tentacles = 14;
-    const slice = (Math.PI * 2) / tentacles;
-    const wobble = Math.sin(currentTime * 0.8) * 0.2;
+    const arms = 5;
+    const loops = 6;
+    const segments = 340;
+    const spiralStrength = 0.7 + totalEnergy * 0.8;
+    const spinNoise = (seed: number) => {
+      const x = Math.sin(seed * 12.9898 + currentTime * 0.9) * 43758.5453;
+      return (x - Math.floor(x)) * Math.PI * 2;
+    };
 
-    context.beginPath();
-    for (let i = 0; i < tentacles; i++) {
-      const baseAngle = i * slice + currentTime * 0.25;
-      const dataIndex = Math.floor((i / tentacles) * (bufferLength - 1));
-      const magnitude = ((timeData[dataIndex] ?? 128) - 100) / 128;
-      const swell = Math.max(0.18, Math.abs(magnitude)) * 0.8;
-      const radius = maxRadius * (0.35 + swell) + Math.sin(baseAngle * 2) * 12;
-      const x = Math.cos(baseAngle) * radius;
-      const y = Math.sin(baseAngle) * radius;
-      if (i === 0) {
-        context.moveTo(x, y);
-      } else {
-        context.quadraticCurveTo(
-          Math.cos(baseAngle - slice / 2) * radius * (0.5 + wobble),
-          Math.sin(baseAngle - slice / 2) * radius * (0.5 + wobble),
-          x,
-          y
-        );
+    for (let arm = 0; arm < arms; arm++) {
+      const path = new Path2D();
+      let started = false;
+      for (let s = 0; s <= segments; s++) {
+        const t = s / segments;
+        const index = Math.floor(t * (timeLength - 1));
+        const osc = ((timeData[index] ?? 128) - 128) / 128;
+        const spiralRadius = Math.pow(t, 0.75) * maxRadius * (0.9 + Math.abs(osc) * 0.25);
+        const wobble = Math.sin(currentTime * 1.3 + s * 0.06 + arm) * 0.35;
+        const spin = t * loops * Math.PI * 2 + arm * ((Math.PI * 2) / arms) + wobble;
+        const flare = 1 + bassEnergy * 0.6 + totalEnergy * 0.6;
+        const x = Math.cos(spin) * spiralRadius * spiralStrength * flare;
+        const y = Math.sin(spin) * spiralRadius * spiralStrength * flare;
+        if (!started) {
+          path.moveTo(x, y);
+          started = true;
+        } else {
+          path.lineTo(x, y);
+        }
       }
+
+      const hue = (120 + arm * 40 + totalEnergy * 200) % 360;
+      const glow = 14 + totalEnergy * 36 + bassEnergy * 24;
+      context.strokeStyle = `hsla(${hue}, 95%, ${58 + bassEnergy * 20}%, ${0.24 + totalEnergy * 0.35})`;
+      context.lineWidth = 2.4 + bassEnergy * 1.5;
+      context.shadowBlur = glow;
+      context.shadowColor = `hsla(${hue}, 95%, 70%, 0.8)`;
+      context.stroke(path);
+
+      context.save();
+      context.globalCompositeOperation = "screen";
+      const sparks = 80;
+      for (let i = 0; i < sparks; i++) {
+        const t = i / sparks;
+        const sparkRadius = (0.1 + t * 1.1) * maxRadius;
+        const theta = spinNoise(t * loops + arm * 1.2 + currentTime * 0.6);
+        const sparkX = Math.cos(theta) * sparkRadius;
+        const sparkY = Math.sin(theta) * sparkRadius;
+        const pulse = 0.3 + Math.sin(currentTime * 2.8 + i) * 0.5;
+        context.beginPath();
+        context.arc(sparkX, sparkY, 1.4 + pulse * 2.8, 0, Math.PI * 2);
+        context.fillStyle = `hsla(${hue + t * 30}, 95%, 68%, ${0.18 + pulse * 0.25})`;
+        context.fill();
+      }
+      context.restore();
     }
-    context.closePath();
-    context.fillStyle = "rgba(120, 255, 200, 0.12)";
-    context.shadowBlur = 22;
-    context.shadowColor = "rgba(120, 255, 200, 0.4)";
+
+    context.globalCompositeOperation = "screen";
+    const core = context.createRadialGradient(0, 0, 0, 0, 0, maxRadius * 0.42);
+    core.addColorStop(0, `hsla(${140 + bassEnergy * 90}, 96%, 74%, ${0.35 + totalEnergy * 0.4})`);
+    core.addColorStop(1, "rgba(0,0,0,0)");
+    context.fillStyle = core;
+    context.beginPath();
+    context.arc(0, 0, maxRadius * (0.38 + totalEnergy * 0.2), 0, Math.PI * 2);
     context.fill();
-
-    // long dancing tentacles
-    const tentacleSegments = 8;
-    for (let i = 0; i < tentacles; i++) {
-      const baseAngle = i * slice + currentTime * 0.3;
-      const colorPhase = (timeData[Math.floor((i / tentacles) * bufferLength)] ?? 128) / 255;
-      const hue = 110 + colorPhase * 80;
-      let angle = baseAngle;
-      let radius = maxRadius * 0.25;
-
-      context.beginPath();
-      context.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
-
-      for (let seg = 0; seg < tentacleSegments; seg++) {
-        const wobblePhase = Math.sin(currentTime * 1.4 + seg * 0.7 + i * 0.3) * 0.5;
-        const bend = Math.sin(currentTime * 0.6 + seg * 0.8 + i) * 0.35;
-        const magnitudeIndex = Math.floor(((seg + 1) / tentacleSegments) * (bufferLength - 1));
-        const amplitude = ((timeData[magnitudeIndex] ?? 128) - 128) / 128;
-        radius += maxRadius * 0.08 + Math.abs(amplitude) * maxRadius * 0.06;
-        angle += wobble * 0.5 + wobblePhase * 0.12 + bend * 0.05;
-
-        const x = Math.cos(angle) * radius;
-        const y = Math.sin(angle) * radius;
-        context.lineTo(x, y);
-      }
-
-      context.strokeStyle = `hsla(${hue}, 95%, 65%, 0.45)`;
-      context.lineWidth = 2.6;
-      context.shadowBlur = 18;
-      context.shadowColor = `hsla(${hue}, 95%, 60%, 0.7)`;
-      context.stroke();
-    }
-
-    context.shadowBlur = 0;
-    context.beginPath();
-    for (let i = 0; i < tentacles * 2; i++) {
-      const angle = (i / (tentacles * 2)) * Math.PI * 2 + currentTime * 0.5;
-      const dataIndex = Math.floor((i / (tentacles * 2)) * (bufferLength - 1));
-      const intensity = ((timeData[dataIndex] ?? 128) - 128) / 128;
-      const radius = maxRadius * (0.25 + Math.abs(intensity) * 0.6);
-      const x = Math.cos(angle) * radius;
-      const y = Math.sin(angle) * radius;
-      context.moveTo(0, 0);
-      context.lineTo(x, y);
-      context.strokeStyle = `hsla(${120 + intensity * 60}, 95%, 65%, ${
-        0.15 + Math.abs(intensity) * 0.4
-      })`;
-      context.lineWidth = 1.5;
-      context.stroke();
-    }
+    context.globalCompositeOperation = "source-over";
 
     context.restore();
-  } else if (visualizerType === "static-shock") {
-    const bufferLength = analyser.fftSize;
-    const timeData = new Uint8Array(bufferLength);
-    analyser.getByteTimeDomainData(timeData);
+  } else if (visualizerType === "super-time-ribbon") {
+    const totalWindowSeconds = PAST_WINDOW_SECONDS + FUTURE_WINDOW_SECONDS;
+    const baseY = height - 24;
+    const ribbonHeight = height - 40;
 
-    const frequencyLength = analyser.frequencyBinCount;
-    const frequencyData = new Uint8Array(frequencyLength);
-    analyser.getByteFrequencyData(frequencyData);
-
-    context.fillStyle = "#04050b";
-    context.fillRect(0, 0, width, height);
-
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const pulse = (timeData[0] ?? 128) / 255;
-
-    const sparkCount = 8;
-    const maxRadius = Math.min(centerX, centerY) * 1.2;
-
-    for (let spark = 0; spark < sparkCount; spark++) {
-      const angle = (spark / sparkCount) * Math.PI * 2 + currentTime * 0.8;
-      const hue = (spark * 40 + currentTime * 90) % 360;
-      const boltPath = new Path2D();
-      const nodes = 10;
-      let radius = 10 + pulse * 20;
-
-      for (let node = 0; node < nodes; node++) {
-        const binIndex = Math.floor((node / nodes) * (frequencyLength - 1));
-        const magnitude = (frequencyData[binIndex] ?? 0) / 255;
-        const shake = (Math.random() - 0.5) * 18;
-        const nodeAngle = angle + Math.sin(currentTime * 1.6 + node) * 0.15;
-        radius += (maxRadius / nodes) * (0.8 + magnitude * 1.4);
-        const x = centerX + Math.cos(nodeAngle) * (radius + shake);
-        const y = centerY + Math.sin(nodeAngle) * (radius + shake);
-        if (node === 0) {
-          boltPath.moveTo(centerX, centerY);
-        }
-        boltPath.lineTo(x, y);
-      }
-
-      context.strokeStyle = `hsla(${hue}, 90%, 70%, ${0.4 + pulse * 0.3})`;
-      context.lineWidth = 2.4 + pulse * 1.2;
-      context.shadowBlur = 16 + pulse * 10;
-      context.shadowColor = `hsla(${hue}, 95%, 70%, 0.8)`;
-      context.stroke(boltPath);
+    if (!amplitudeEnvelope || !amplitudeEnvelope.length) {
+      context.fillStyle = "#ccc";
+      context.font = "12px sans-serif";
+      context.fillText("Analyzing track envelope for ribbon view...", 10, baseY);
+      return;
     }
 
-    context.shadowBlur = 0;
-    const shockwaveRadius = maxRadius * (0.2 + pulse * 0.6);
+    const amplitudeAtTime = (time: number) => {
+      const index = time / AMPLITUDE_WINDOW_SECONDS;
+      const baseIndex = Math.floor(index);
+      const nextIndex = Math.min(baseIndex + 1, amplitudeEnvelope.length - 1);
+      const fraction = index - baseIndex;
+      const first = amplitudeEnvelope[Math.max(0, Math.min(baseIndex, amplitudeEnvelope.length - 1))] ?? 0;
+      const second = amplitudeEnvelope[nextIndex] ?? first;
+      return first + (second - first) * fraction;
+    };
+
+    const centerX = (PAST_WINDOW_SECONDS / totalWindowSeconds) * width;
+    const frequencyBins = analyser.frequencyBinCount;
+    const frequencyData = new Uint8Array(frequencyBins);
+    const timeDomain = new Uint8Array(analyser.fftSize);
+
+    analyser.getByteFrequencyData(frequencyData);
+    analyser.getByteTimeDomainData(timeDomain);
+
+    let peakIndex = 0;
+    let peakValue = 0;
+
+    for (let i = 0; i < frequencyBins; i++) {
+      const binValue = frequencyData[i] ?? 0;
+
+      if (binValue > peakValue) {
+        peakValue = binValue;
+        peakIndex = i;
+      }
+    }
+
+    let rms = 0;
+    for (let i = 0; i < timeDomain.length; i++) {
+      const sample = ((timeDomain[i] ?? 128) - 128) / 128;
+      rms += sample * sample;
+    }
+    rms = Math.sqrt(rms / timeDomain.length);
+
+    const nyquist = sampleRate / 2;
+    const dominantFrequency = frequencyBins > 0 ? (peakIndex / frequencyBins) * nyquist : 0;
+    const hue = Math.max(0, Math.min(280, (dominantFrequency / 2000) * 280));
+    const ribbonColor = `hsl(${hue}, 80%, 60%)`;
+    const ribbonFillColor = `hsla(${hue}, 80%, 60%, 0.12)`;
+    const shakeX = Math.sin(currentTime * 7.5) * rms * 18;
+    const shakeY = Math.cos(currentTime * 6.3) * rms * 18;
+
+    context.save();
+    context.translate(shakeX, shakeY);
+    context.fillStyle = "#070b14";
+    context.fillRect(-Math.abs(shakeX), -Math.abs(shakeY), width + Math.abs(shakeX) * 2, height + Math.abs(shakeY) * 2);
+
+    context.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    context.lineWidth = 1;
+    const subtleGap = 48;
+    for (let x = 0; x < width; x += subtleGap) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, height);
+      context.stroke();
+    }
+
     context.beginPath();
-    context.arc(centerX, centerY, shockwaveRadius, 0, Math.PI * 2);
-    context.strokeStyle = `rgba(180, 220, 255, ${0.15 + pulse * 0.3})`;
+
+    for (let x = 0; x <= width; x += 2) {
+      const timeOffset = (x / width) * totalWindowSeconds - PAST_WINDOW_SECONDS;
+      const sampleTime = currentTime + timeOffset;
+      const amplitude = sampleTime >= 0 ? amplitudeAtTime(sampleTime) : amplitudeAtTime(0);
+      const normalized = Math.min(1, amplitude / amplitudeMaximum);
+      const y = baseY - normalized * ribbonHeight;
+
+      if (x === 0) {
+        context.moveTo(x, y);
+      } else {
+        context.lineTo(x, y);
+      }
+    }
+
+    context.strokeStyle = ribbonColor;
     context.lineWidth = 3;
     context.stroke();
 
-    context.fillStyle = "rgba(255, 255, 255, 0.08)";
-    for (let i = 0; i < 70; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = ((frequencyData[i % frequencyLength] ?? 0) / 255) * 2.4 + 0.6;
-      const distance = (Math.sin(currentTime * speed + i) * 0.5 + 0.5) * maxRadius;
-      const x = centerX + Math.cos(angle) * distance;
-      const y = centerY + Math.sin(angle) * distance;
-      context.fillRect(x, y, 2, 2);
-    }
-  } else if (visualizerType === "snowstorm") {
-    const bufferLength = analyser.frequencyBinCount;
-    const frequencyData = new Uint8Array(bufferLength);
-    analyser.getByteFrequencyData(frequencyData);
+    context.lineTo(width, baseY);
+    context.lineTo(0, baseY);
+    context.closePath();
+    context.fillStyle = ribbonFillColor;
+    context.fill();
 
-    context.fillStyle = "rgba(3, 6, 12, 0.6)";
-    context.fillRect(0, 0, width, height);
-
-    const average =
-      bufferLength > 0
-        ? frequencyData.reduce((sum, value) => sum + value, 0) / (bufferLength * 255)
-        : 0;
-    const flakeCount = Math.floor(80 + average * 140);
-
-    for (let i = 0; i < flakeCount; i++) {
-      const drift = Math.sin(currentTime * 0.4 + i * 0.6) * 18;
-      const xPos = (i / flakeCount) * width + drift;
-      const fallSpeed = 10 + average * 30;
-      const yPos = (Math.random() * height + currentTime * fallSpeed + i * 2.2) % height;
-      const size = 1 + Math.random() * 2;
-      context.beginPath();
-      context.arc(xPos, yPos, size, 0, Math.PI * 2);
-      context.fillStyle = `rgba(230, 240, 255, ${0.3 + Math.random() * 0.4})`;
-      context.fill();
-    }
-
-    context.fillStyle = "rgba(255, 255, 255, 0.1)";
-    context.fillRect(0, 0, width, 26 + average * 24);
-  } else if (visualizerType === "kaleidoscope") {
-    const bufferLength = analyser.frequencyBinCount;
-    const frequencyData = new Uint8Array(bufferLength);
-    analyser.getByteFrequencyData(frequencyData);
-
-    context.fillStyle = "#07070c";
-    context.fillRect(0, 0, width, height);
-
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const slices = 12;
-    const sweep = (Math.PI * 2) / slices;
-    const maxRadius = Math.min(centerX, centerY) - 6;
-
-    context.save();
-    context.translate(centerX, centerY);
-    for (let sliceIndex = 0; sliceIndex < slices; sliceIndex++) {
-      context.save();
-      context.rotate(sliceIndex * sweep + currentTime * 0.3);
-      context.beginPath();
-      context.moveTo(0, 0);
-      for (let i = 0; i < bufferLength; i += 2) {
-        const magnitude = (frequencyData[i] ?? 0) / 255;
-        const pulse = Math.sin(currentTime * 1.6 + i * 0.02) * 0.15 + 0.85;
-        const radius = magnitude * maxRadius * pulse;
-        const angle = (i / bufferLength) * sweep * 1.4;
-        const xPos = Math.cos(angle) * radius;
-        const yPos = Math.sin(angle) * radius;
-        context.lineTo(xPos, yPos);
-      }
-      context.closePath();
-      const hue = (sliceIndex * 50 + currentTime * 90) % 360;
-      context.fillStyle = `hsla(${hue}, 85%, 62%, 0.12)`;
-      context.strokeStyle = `hsla(${hue}, 95%, 70%, 0.55)`;
-      context.lineWidth = 1.7;
-      context.globalCompositeOperation = "lighter";
-      context.fill();
-      context.stroke();
-
-      context.scale(-1, 1);
-      context.rotate(Math.sin(currentTime * 0.7) * 0.3);
-      context.fill();
-      context.stroke();
-      context.globalCompositeOperation = "source-over";
-      context.restore();
-    }
+    context.strokeStyle = "rgba(255, 255, 255, 0.65)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(centerX, 0);
+    context.lineTo(centerX, height);
+    context.stroke();
     context.restore();
-  } else if (visualizerType === "highway") {
+  } else if (visualizerType === "prismatic-turbine") {
     const bufferLength = analyser.frequencyBinCount;
     const frequencyData = new Uint8Array(bufferLength);
     analyser.getByteFrequencyData(frequencyData);
-
-    context.fillStyle = "#05060d";
-    context.fillRect(0, 0, width, height);
-
-    const horizon = height * 0.35;
-    const lanes = 5;
-    const laneWidth = width / (lanes + 2);
-    const vanishingX = width / 2;
 
     const energy =
       bufferLength > 0
         ? frequencyData.reduce((sum, value) => sum + value, 0) / (bufferLength * 255)
         : 0;
 
-    const skyHue = 200 + energy * 140;
-    const skyGradient = context.createLinearGradient(0, 0, 0, horizon);
-    skyGradient.addColorStop(0, `hsl(${skyHue}, 70%, ${35 + energy * 25}%)`);
-    skyGradient.addColorStop(1, `hsl(${skyHue - 40}, 65%, ${14 + energy * 24}%)`);
-    context.fillStyle = skyGradient;
-    context.fillRect(0, 0, width, horizon);
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const slices = 14;
+    const sweep = (Math.PI * 2) / slices;
+    const maxRadius = Math.sqrt(width * width + height * height) / 2;
+    const pulse = 1 + Math.sin(currentTime * 2.2) * 0.08 + energy * 0.4;
 
-    context.fillStyle = "rgba(15, 20, 40, 0.9)";
-    context.beginPath();
-    context.moveTo(vanishingX - width * 0.6, height);
-    context.lineTo(vanishingX + width * 0.6, height);
-    context.lineTo(vanishingX + width * 0.08, horizon);
-    context.lineTo(vanishingX - width * 0.08, horizon);
-    context.closePath();
-    context.fill();
+    const bg = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius);
+    bg.addColorStop(0, "#090916");
+    bg.addColorStop(1, "#04050a");
+    context.fillStyle = bg;
+    context.fillRect(0, 0, width, height);
 
-    // parallax guard rails
-    context.strokeStyle = "rgba(255, 255, 255, 0.15)";
-    context.lineWidth = 2;
-    for (let side = -1; side <= 1; side += 2) {
+    context.save();
+    context.translate(centerX, centerY);
+    context.rotate(Math.sin(currentTime * 0.4) * 0.2);
+    for (let sliceIndex = 0; sliceIndex < slices; sliceIndex++) {
+      context.save();
+      context.rotate(sliceIndex * sweep + currentTime * 0.25 + energy * 0.4);
       context.beginPath();
-      context.moveTo(vanishingX + side * width * 0.08, horizon);
-      context.lineTo(vanishingX + side * width * 0.5, height);
+      context.moveTo(0, 0);
+      for (let i = 0; i < bufferLength; i += 2) {
+        const magnitude = (frequencyData[i] ?? 0) / 255;
+        const radialPulse = 0.8 + Math.sin(currentTime * 1.6 + i * 0.02) * 0.15 + energy * 0.5;
+        const radius = magnitude * maxRadius * pulse * radialPulse;
+        const angle = (i / bufferLength) * sweep * 1.6;
+        const xPos = Math.cos(angle) * radius;
+        const yPos = Math.sin(angle) * radius;
+        context.lineTo(xPos, yPos);
+      }
+      context.closePath();
+      const hue = (sliceIndex * 36 + currentTime * 120 + energy * 200) % 360;
+      context.fillStyle = `hsla(${hue}, 85%, 62%, 0.14)`;
+      context.strokeStyle = `hsla(${hue}, 95%, 70%, ${0.45 + energy * 0.35})`;
+      context.lineWidth = 1.9;
+      context.globalCompositeOperation = "lighter";
+      context.fill();
+      context.stroke();
+
+      context.scale(-1, 1);
+      context.rotate(Math.sin(currentTime * 0.8 + energy) * 0.5);
+      context.fill();
+      context.stroke();
+      context.globalCompositeOperation = "source-over";
+      context.restore();
+    }
+
+    context.globalCompositeOperation = "screen";
+    const tileSize = Math.max(width, height) / 6;
+    for (let yTile = -1; yTile < height / tileSize + 1; yTile++) {
+      for (let xTile = -1; xTile < width / tileSize + 1; xTile++) {
+        const offset = Math.sin(currentTime + xTile + yTile) * tileSize * 0.2;
+        context.save();
+        context.translate(xTile * tileSize + offset, yTile * tileSize - offset);
+        context.rotate(((xTile + yTile) % 2 === 0 ? 1 : -1) * (Math.PI / 4));
+        const tileHue = (energy * 220 + (xTile + yTile) * 14 + currentTime * 60) % 360;
+        context.strokeStyle = `hsla(${tileHue}, 90%, 70%, 0.18)`;
+        context.lineWidth = 2;
+        context.beginPath();
+        context.moveTo(-tileSize, 0);
+        context.lineTo(0, tileSize);
+        context.lineTo(tileSize, 0);
+        context.lineTo(0, -tileSize);
+        context.closePath();
+        context.stroke();
+        context.restore();
+      }
+    }
+    context.globalCompositeOperation = "source-over";
+    context.restore();
+  } else if (visualizerType === "kaleidoscope") {
+    const freqLength = analyser.frequencyBinCount;
+    const frequencyData = new Uint8Array(freqLength);
+    analyser.getByteFrequencyData(frequencyData);
+
+    const timeLength = analyser.fftSize;
+    const timeData = new Uint8Array(timeLength);
+    analyser.getByteTimeDomainData(timeData);
+
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxRadius = Math.sqrt(width * width + height * height) / 2;
+    const energy =
+      freqLength > 0
+        ? frequencyData.reduce((sum, value) => sum + value, 0) / (freqLength * 255)
+        : 0;
+
+    const sky = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius);
+    sky.addColorStop(0, "#0a0b12");
+    sky.addColorStop(1, "#05060d");
+    context.fillStyle = sky;
+    context.fillRect(0, 0, width, height);
+
+    context.save();
+    context.translate(centerX, centerY);
+    const slices = 12;
+    const wedge = (Math.PI * 2) / slices;
+    const pulse = 0.6 + Math.sin(currentTime * 1.5) * 0.25 + energy * 0.4;
+
+    const drawWedge = () => {
+      const points = 140;
+      context.beginPath();
+      context.moveTo(0, 0);
+      for (let i = 0; i <= points; i++) {
+        const t = i / points;
+        const idx = Math.floor(t * (timeLength - 1));
+        const osc = ((timeData[idx] ?? 128) - 128) / 128;
+        const radius = (0.12 + t * 0.9) * maxRadius * (0.6 + Math.abs(osc) * 0.8) * pulse;
+        const angle = wedge * t;
+        context.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      }
+      context.closePath();
+    };
+
+    for (let slice = 0; slice < slices; slice++) {
+      context.save();
+      context.rotate(slice * wedge + currentTime * 0.15 + energy * 0.4);
+      drawWedge();
+      const hue = (slice * 30 + currentTime * 120 + energy * 240) % 360;
+      context.fillStyle = `hsla(${hue}, 85%, 65%, 0.14)`;
+      context.strokeStyle = `hsla(${hue}, 95%, 72%, ${0.4 + energy * 0.35})`;
+      context.lineWidth = 2;
+      context.fill();
+      context.stroke();
+
+      context.scale(-1, 1);
+      drawWedge();
+      context.fill();
+      context.stroke();
+      context.restore();
+    }
+
+    context.globalCompositeOperation = "lighter";
+    const lensRings = 6;
+    for (let ring = 0; ring < lensRings; ring++) {
+      const progress = ring / lensRings;
+      const radius = (0.18 + progress * 0.75) * maxRadius;
+      const hue = (progress * 220 + currentTime * 80 + energy * 260) % 360;
+      context.beginPath();
+      context.arc(0, 0, radius, 0, Math.PI * 2);
+      context.strokeStyle = `hsla(${hue}, 90%, ${55 + progress * 25}%, ${0.18 + energy * 0.25})`;
+      context.lineWidth = 1.5 + Math.sin(currentTime * 2 + ring) * 0.6;
       context.stroke();
     }
 
-    // moving lane lines with depth scaling
-    const dashSpeed = currentTime * 220;
-    for (let lane = 0; lane < lanes; lane++) {
-      const laneCenter = vanishingX + (lane - lanes / 2 + 0.5) * laneWidth;
-      for (let i = 0; i < 18; i++) {
-        const depth = (i * 80 + dashSpeed) % height;
-        const depthFactor = depth / height;
-        const perspective = 1 + depthFactor * 2.2;
-        const x = vanishingX + (laneCenter - vanishingX) * perspective;
-        const y = horizon + depth;
-        const dashWidth = 5 * perspective;
-        const dashHeight = 18 * perspective;
-        context.fillStyle = `rgba(230, 240, 255, ${0.08 + (1 - depthFactor) * 0.45})`;
+    context.globalCompositeOperation = "source-over";
+    context.restore();
+  } else if (visualizerType === "highway") {
+    const freqLength = analyser.frequencyBinCount;
+    const frequencyData = new Uint8Array(freqLength);
+    analyser.getByteFrequencyData(frequencyData);
+
+    const timeLength = analyser.fftSize;
+    const timeData = new Uint8Array(timeLength);
+    analyser.getByteTimeDomainData(timeData);
+
+    const horizon = height * 0.48;
+    const drift = ((timeData[0] ?? 128) - 128) / 128;
+    const vanishingX = width / 2 + drift * 12;
+    const roadBottom = width * 0.64;
+    const roadTop = width * 0.14;
+    const lanes = 4;
+
+    const energy =
+      freqLength > 0
+        ? frequencyData.reduce((sum, value) => sum + value, 0) / (freqLength * 255)
+        : 0;
+    const bass =
+      freqLength > 0
+        ? frequencyData
+            .slice(0, Math.max(1, Math.floor(freqLength / 10)))
+            .reduce((sum, value) => sum + value, 0) /
+          (Math.max(1, Math.floor(freqLength / 10)) * 255)
+        : 0;
+
+    const calmRandom = (seed: number) => {
+      const x = Math.sin(seed * 923.133 + currentTime * 0.05) * 43758.5453;
+      return x - Math.floor(x);
+    };
+
+    const sky = context.createLinearGradient(0, 0, 0, horizon);
+    sky.addColorStop(0, `hsl(${205 + energy * 25}, 55%, ${18 + energy * 16}%)`);
+    sky.addColorStop(1, `hsl(${240 + energy * 25}, 60%, ${10 + energy * 10}%)`);
+    context.fillStyle = sky;
+    context.fillRect(0, 0, width, horizon);
+
+    const starCount = 60;
+    for (let i = 0; i < starCount; i++) {
+      const twinkle = 0.08 + calmRandom(i * 5.1) * 0.2 + energy * 0.18;
+      const x = calmRandom(i * 3.7) * width;
+      const y = calmRandom(i * 7.3) * horizon * 0.9;
+      context.fillStyle = `rgba(255, 255, 255, ${0.04 + twinkle * 0.3})`;
+      context.fillRect(x, y, 1.2 + twinkle * 2, 1.2 + twinkle * 2);
+    }
+
+    const sunRadius = 22 + energy * 18;
+    const sun = context.createRadialGradient(vanishingX, horizon, 0, vanishingX, horizon, sunRadius);
+    sun.addColorStop(0, `hsla(${35 + bass * 60}, 90%, 62%, 0.75)`);
+    sun.addColorStop(1, "rgba(255, 200, 150, 0)");
+    context.fillStyle = sun;
+    context.beginPath();
+    context.arc(vanishingX, horizon, sunRadius, 0, Math.PI * 2);
+    context.fill();
+
+    const mist = context.createLinearGradient(0, horizon * 0.7, 0, horizon + 40);
+    mist.addColorStop(0, "rgba(180, 210, 255, 0.05)");
+    mist.addColorStop(1, "rgba(70, 90, 130, 0.25)");
+    context.fillStyle = mist;
+    context.fillRect(0, 0, width, horizon + 40);
+
+    context.fillStyle = "#05060e";
+    context.fillRect(0, horizon, width, height - horizon);
+
+    context.beginPath();
+    context.moveTo(vanishingX - roadBottom, height);
+    context.lineTo(vanishingX + roadBottom, height);
+    context.lineTo(vanishingX + roadTop, horizon);
+    context.lineTo(vanishingX - roadTop, horizon);
+    context.closePath();
+    const asphalt = context.createLinearGradient(0, horizon, 0, height);
+    asphalt.addColorStop(0, "#0a0c16");
+    asphalt.addColorStop(1, "#04050a");
+    context.fillStyle = asphalt;
+    context.fill();
+
+    const edgeGlow = context.createLinearGradient(0, horizon, 0, height);
+    edgeGlow.addColorStop(0, `rgba(140, 200, 255, ${0.16 + energy * 0.12})`);
+    edgeGlow.addColorStop(1, "rgba(140, 200, 255, 0)");
+    context.strokeStyle = edgeGlow;
+    context.lineWidth = 3.4;
+    for (let side = -1; side <= 1; side += 2) {
+      context.beginPath();
+      context.moveTo(vanishingX + side * roadTop, horizon);
+      context.lineTo(vanishingX + side * roadBottom, height);
+      context.stroke();
+    }
+
+    const laneLines = 16;
+    const speed = 140 * (0.55 + energy * 1.2);
+    for (let i = 0; i < laneLines; i++) {
+      const depth = ((i * 150 + currentTime * speed) % (height - horizon)) / (height - horizon);
+      const y = horizon + depth * (height - horizon);
+      const rowWidth = roadTop + (roadBottom - roadTop) * depth;
+      const dashHeight = 12 + depth * 28 + bass * 10;
+      const dashWidth = 6 + depth * 6;
+      const fade = 0.24 + (1 - depth) * 0.55;
+      for (let lane = 1; lane < lanes; lane++) {
+        const t = lane / lanes;
+        const x = vanishingX - rowWidth + t * rowWidth * 2;
+        context.fillStyle = `rgba(230, 242, 255, ${fade})`;
         context.fillRect(x - dashWidth / 2, y, dashWidth, dashHeight);
       }
     }
 
-    context.strokeStyle = "rgba(255, 255, 255, 0.08)";
-    for (let lane = 0; lane <= lanes; lane++) {
-      const offset = (lane - lanes / 2) * laneWidth;
-      context.beginPath();
-      context.moveTo(vanishingX + offset * 0.1, horizon);
-      context.lineTo(vanishingX + offset * 1.2, height);
-      context.stroke();
-    }
-
-    const maxGlow = analyser.frequencyBinCount;
-    for (let i = 0; i < maxGlow; i += 6) {
-      const value = (frequencyData[i] ?? 0) / 255;
-      const glowX = Math.random() * width;
-      const glowY = horizon - Math.random() * 50;
-      context.beginPath();
-      context.arc(glowX, glowY, 2 + value * 7, 0, Math.PI * 2);
-      context.fillStyle = `hsla(${skyHue}, 90%, 70%, ${0.12 + value * 0.5})`;
-      context.fill();
+    const guardRailPulse = 0.4 + bass * 0.8;
+    context.strokeStyle = `rgba(120, 210, 255, ${0.2 + bass * 0.25})`;
+    context.lineWidth = 2.2;
+    for (let post = 0; post < 16; post++) {
+      const depth = (post / 16) * 1.05;
+      const y = horizon + depth * (height - horizon);
+      const rowWidth = roadTop + (roadBottom - roadTop) * depth;
+      for (let side = -1; side <= 1; side += 2) {
+        const x = vanishingX + side * rowWidth;
+        context.beginPath();
+        context.moveTo(x, y);
+        context.lineTo(x + side * 6, y + 16 + bass * 10);
+        context.stroke();
+        context.beginPath();
+        context.moveTo(x, y + 4);
+        context.lineTo(x + side * (10 + guardRailPulse * 8), y + 6);
+        context.stroke();
+      }
     }
   } else if (visualizerType === "delay-pedal") {
     const bufferLength = analyser.fftSize;

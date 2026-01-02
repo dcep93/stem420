@@ -45,10 +45,10 @@ const visualizerOptions: Array<{
   { value: "solstice-waves", label: "Solstice Waves", hint: "Solar Horizon" },
   { value: "ripple-weave", label: "Ripple Weave", hint: "Braided Ribbons" },
   { value: "ectoplasm", label: "Ectoplasm", hint: "Plasma Bloom" },
-  { value: "static-shock", label: "Static Shock", hint: "Electric Bolts" },
-  { value: "snowstorm", label: "Snowstorm", hint: "Blizzard Scatter" },
-  { value: "kaleidoscope", label: "Kaleidoscope", hint: "Mirrored Rays" },
-  { value: "highway", label: "Highway", hint: "Neon Lanes" },
+  { value: "super-time-ribbon", label: "Super Time Ribbon", hint: "Shaking Ribbon" },
+  { value: "prismatic-turbine", label: "Prismatic Turbine", hint: "Whirling Shards" },
+  { value: "kaleidoscope", label: "Kaleidoscope", hint: "Mirrored Lenses" },
+  { value: "highway", label: "Highway", hint: "Retro Neon Run" },
   { value: "delay-pedal", label: "Delay Pedal", hint: "Echo Ripples" },
 ];
 
