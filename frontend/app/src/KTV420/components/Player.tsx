@@ -9,20 +9,20 @@ import {
 } from "react";
 
 import { removeCachedOutputs } from "../indexedDbClient";
+import {
+  analyzeChordTimeline,
+  type ChordSnapshot,
+} from "./player/chordAnalyzer";
 import { TrackRow } from "./player/TrackRow";
 import {
   AMPLITUDE_WINDOW_SECONDS,
-  FUTURE_WINDOW_SECONDS,
   type CachedTrackFile,
+  FUTURE_WINDOW_SECONDS,
   PAST_WINDOW_SECONDS,
   type PlayerProps,
   type Track,
   type VisualizerType,
 } from "./player/types";
-import {
-  analyzeChordTimeline,
-  type ChordSnapshot,
-} from "./player/chordAnalyzer";
 import { drawVisualizer } from "./player/visualizers";
 
 const visualizerOptions: Array<{
@@ -95,7 +95,9 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [readyTrackIds, setReadyTrackIds] = useState<string[]>([]);
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [chordTimeline, setChordTimeline] = useState<ChordSnapshot[]>([]);
-  const [chordStatus, setChordStatus] = useState<string>("Analyzing harmony...");
+  const [chordStatus, setChordStatus] = useState<string>(
+    "Analyzing harmony..."
+  );
   const [currentChord, setCurrentChord] = useState<string>("Detecting...");
   const isAnyTrackDeafened = useMemo(
     () => Object.values(trackDeafenStates).some(Boolean),
@@ -332,7 +334,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       const crossfadeAngle = wahAmount * (Math.PI / 2);
       const dryMix = Math.cos(crossfadeAngle);
       const wetMix = Math.sin(crossfadeAngle);
-      const makeupGain = 1 + wahAmount * 0.6;
+      const makeupGain = 1 + wahAmount * 3;
 
       wahNodes.filter.type = "bandpass";
       wahNodes.filter.frequency.setTargetAtTime(
@@ -346,11 +348,7 @@ export default function Player({ record, onClose }: PlayerProps) {
         context.currentTime,
         0.01
       );
-      wahNodes.dryGain.gain.setTargetAtTime(
-        dryMix,
-        context.currentTime,
-        0.01
-      );
+      wahNodes.dryGain.gain.setTargetAtTime(dryMix, context.currentTime, 0.01);
     },
     [ensureAudioContext]
   );
@@ -600,13 +598,14 @@ export default function Player({ record, onClose }: PlayerProps) {
             }
           };
 
-          const idleCallback =
-            (window as Window & {
+          const idleCallback = (
+            window as Window & {
               requestIdleCallback?: (
                 callback: IdleRequestCallback,
                 options?: IdleRequestOptions
               ) => number;
-            }).requestIdleCallback;
+            }
+          ).requestIdleCallback;
 
           if (idleCallback) {
             idleCallback(
@@ -1100,7 +1099,9 @@ export default function Player({ record, onClose }: PlayerProps) {
             aria-label="Detected chord"
           >
             <span style={{ fontWeight: 700, color: "#e5e7eb" }}>Chord:</span>
-            <span style={{ fontStyle: chordTimeline.length ? "normal" : "italic" }}>
+            <span
+              style={{ fontStyle: chordTimeline.length ? "normal" : "italic" }}
+            >
               {chordDisplay}
             </span>
           </div>
@@ -1112,14 +1113,14 @@ export default function Player({ record, onClose }: PlayerProps) {
             style={{ minWidth: "3rem" }}
           >
             <span
-              style={{ display: "inline-block", width: "1.5em", textAlign: "center" }}
+              style={{
+                display: "inline-block",
+                width: "1.5em",
+                textAlign: "center",
+              }}
               aria-hidden
             >
-              {isPlaying
-                ? "⏸"
-                : areTracksReady
-                  ? "▶"
-                  : "⏳"}
+              {isPlaying ? "⏸" : areTracksReady ? "▶" : "⏳"}
             </span>
           </button>
         </div>
