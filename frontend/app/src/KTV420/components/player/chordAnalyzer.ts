@@ -13,6 +13,8 @@ type ChordQuality =
   | "dom7"
   | "maj7"
   | "min7"
+  | "maj9"
+  | "min9"
   | "dim"
   | "aug"
   | "unknown"
@@ -47,9 +49,11 @@ const CHORD_TEMPLATES: Array<{
 }> = [
   { quality: "major", intervals: [0, 4, 7], weight: 1.12 },
   { quality: "minor", intervals: [0, 3, 7], weight: 1.1 },
-  { quality: "dom7", intervals: [0, 4, 7, 10], weight: 1.02 },
-  { quality: "maj7", intervals: [0, 4, 7, 11], weight: 0.98 },
-  { quality: "min7", intervals: [0, 3, 7, 10], weight: 0.98 },
+  { quality: "dom7", intervals: [0, 4, 7, 10], weight: 0.85 },
+  { quality: "maj7", intervals: [0, 4, 7, 11], weight: 0.82 },
+  { quality: "min7", intervals: [0, 3, 7, 10], weight: 0.82 },
+  { quality: "maj9", intervals: [0, 4, 7, 2], weight: 0.78 },
+  { quality: "min9", intervals: [0, 3, 7, 2], weight: 0.78 },
   { quality: "sus2", intervals: [0, 2, 7], weight: 0.95 },
   { quality: "suspended", intervals: [0, 5, 7], weight: 0.95 },
   { quality: "power", intervals: [0, 7], weight: 0.85 },
@@ -182,6 +186,32 @@ const computePitchClassEnergies = (
   return { energies, bassEnergies }
 }
 
+const getBaseIntervals = (quality: ChordQuality): number[] => {
+  switch (quality) {
+    case "major":
+    case "dom7":
+    case "maj7":
+    case "maj9":
+      return [0, 4, 7]
+    case "minor":
+    case "min7":
+    case "min9":
+      return [0, 3, 7]
+    case "sus2":
+      return [0, 2, 7]
+    case "suspended":
+      return [0, 5, 7]
+    case "power":
+      return [0, 7]
+    case "dim":
+      return [0, 3, 6]
+    case "aug":
+      return [0, 4, 8]
+    default:
+      return [0, 4, 7]
+  }
+}
+
 const scoreChordTemplate = (
   root: number,
   template: (typeof CHORD_TEMPLATES)[number],
@@ -190,20 +220,94 @@ const scoreChordTemplate = (
 ): { chord: string; score: number; confidence: number } => {
   const { quality, intervals } = template
   const rootEnergy = pitchEnergies[root] ?? 0
+  const baseIntervals = getBaseIntervals(quality)
+  const baseIntervalSet = new Set(baseIntervals)
 
-  let score = 0
+  let chordEnergy = 0
+  let baseEnergy = 0
+  let extensionEnergy = 0
   intervals.forEach((interval, index) => {
-    const weight = index === 0 ? 1.25 : 1
-    score += (pitchEnergies[(root + interval) % 12] ?? 0) * weight
+    const baseWeight = index === 0 ? 1.3 : 1
+    const isBaseInterval = baseIntervalSet.has(interval)
+    const extensionWeight = isBaseInterval
+      ? 1
+      : interval === 2
+        ? 0.45
+        : 0.55
+    const energy =
+      (pitchEnergies[(root + interval) % 12] ?? 0) *
+      baseWeight *
+      extensionWeight
+
+    chordEnergy += energy
+    if (isBaseInterval) {
+      baseEnergy += energy
+    } else {
+      extensionEnergy += energy
+    }
   })
 
   // Reward stable roots so we do not oscillate between enharmonic matches.
-  score += rootEnergy * 0.15
+  const dissonance = Math.max(0, energySum - chordEnergy)
+  const hasExtensions = intervals.some((interval) => !baseIntervalSet.has(interval))
+  const extensionFloor = baseEnergy * (() => {
+    if (intervals.includes(2)) {
+      return 0.6
+    }
 
-  const confidence = energySum > 0 ? score / energySum : 0
-  const label = `${NOTE_LABELS[root] ?? "?"} ${quality}`
+    if (intervals.includes(10) || intervals.includes(11)) {
+      return 0.55
+    }
 
-  return { chord: label, score: score * template.weight, confidence }
+    return 0.28
+  })()
+  const extensionPenalty = hasExtensions
+    ? Math.max(0, extensionFloor - extensionEnergy) * 0.7
+    : 0
+  const score =
+    chordEnergy * template.weight +
+    rootEnergy * 0.2 -
+    dissonance * 0.12 -
+    extensionPenalty
+
+  const confidence =
+    energySum > 0 ? (baseEnergy + extensionEnergy * 0.6) / energySum : 0
+  const label = formatChordLabel(root, quality)
+
+  return { chord: label, score, confidence }
+}
+
+const formatChordLabel = (root: number, quality: ChordQuality): string => {
+  const note = NOTE_LABELS[root] ?? "?"
+
+  switch (quality) {
+    case "major":
+      return note
+    case "minor":
+      return `${note}m`
+    case "power":
+      return `${note}5`
+    case "sus2":
+      return `${note}sus2`
+    case "suspended":
+      return `${note}sus4`
+    case "dom7":
+      return `${note}7`
+    case "maj7":
+      return `${note}maj7`
+    case "min7":
+      return `${note}m7`
+    case "maj9":
+      return `${note}maj9`
+    case "min9":
+      return `${note}m9`
+    case "dim":
+      return `${note}dim`
+    case "aug":
+      return `${note}aug`
+    default:
+      return `${note} ${quality}`
+  }
 }
 
 const pickBestChord = (
@@ -212,6 +316,8 @@ const pickBestChord = (
   minimumConfidence: number
 ): { chord: string; confidence: number } => {
   const energySum = pitchEnergies.reduce((sum, value) => sum + value, 0) + 1e-6
+  const bassAverage =
+    bassEnergies.reduce((sum, value) => sum + value, 0) / bassEnergies.length
 
   let best: { chord: string; score: number; confidence: number } = {
     chord: "Unclear",
@@ -223,7 +329,7 @@ const pickBestChord = (
     CHORD_TEMPLATES.forEach((template) => {
       const candidate = scoreChordTemplate(root, template, pitchEnergies, energySum)
 
-      const bassBoost = (bassEnergies[root] ?? 0) * 0.35
+      const bassBoost = Math.max(0, (bassEnergies[root] ?? 0) - bassAverage) * 0.6
       const weightedScore = candidate.score + bassBoost
 
       if (weightedScore > best.score) {
