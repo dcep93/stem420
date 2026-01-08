@@ -12,7 +12,9 @@ import { removeCachedOutputs } from "../indexedDbClient";
 import { TrackRow } from "./player/TrackRow";
 import {
   AMPLITUDE_WINDOW_SECONDS,
+  FUTURE_WINDOW_SECONDS,
   type CachedTrackFile,
+  PAST_WINDOW_SECONDS,
   type PlayerProps,
   type Track,
   type VisualizerType,
@@ -822,6 +824,13 @@ export default function Player({ record, onClose }: PlayerProps) {
 
   const handleCanvasSeek = useCallback(
     (event: PointerEvent<HTMLCanvasElement>) => {
+      if (
+        visualizerType !== "time-ribbon" &&
+        visualizerType !== "super-time-ribbon"
+      ) {
+        return;
+      }
+
       if (!duration) {
         return;
       }
@@ -831,11 +840,13 @@ export default function Player({ record, onClose }: PlayerProps) {
         ? (event.clientX - rect.left) / rect.width
         : 0;
       const clamped = Math.min(1, Math.max(0, position));
-      const targetTime = clamped * duration;
+      const totalWindowSeconds = PAST_WINDOW_SECONDS + FUTURE_WINDOW_SECONDS;
+      const timeOffset = clamped * totalWindowSeconds - PAST_WINDOW_SECONDS;
+      const targetTime = currentTime + timeOffset;
       pendingSeekRef.current = targetTime;
       void commitSeek(targetTime);
     },
-    [commitSeek, duration]
+    [commitSeek, currentTime, duration, visualizerType]
   );
 
   const handlePlayPause = useCallback(async () => {
