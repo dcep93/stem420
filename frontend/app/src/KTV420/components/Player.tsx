@@ -576,9 +576,12 @@ export default function Player({ record, onClose }: PlayerProps) {
 
             try {
               const timeline = await analyzeChordTimeline(audioBuffer, {
-                stableFrameCount: 3,
-                minimumConfidence: 0.15,
-                yieldEveryFrames: 8,
+                stableFrameCount: 2,
+                minimumConfidence: 0.16,
+                windowSeconds: 1.6,
+                hopSeconds: 0.5,
+                targetSampleRate: 11025,
+                yieldEveryFrames: 6,
               });
 
               if (!isCancelled) {

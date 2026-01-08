@@ -25,6 +25,7 @@ type ChordAnalysisOptions = {
   minimumConfidence?: number
   stableFrameCount?: number
   yieldEveryFrames?: number
+  targetSampleRate?: number
 }
 
 const NOTE_LABELS = [
@@ -61,9 +62,9 @@ const CHORD_TEMPLATES: Array<{
   { quality: "aug", intervals: [0, 4, 8], weight: 0.72 },
 ]
 
-const MIN_MIDI_NOTE = 33 // A1
-const MAX_MIDI_NOTE = 84 // C6
-const HARMONIC_WEIGHTS = [1, 0.6, 0.35, 0.2, 0.12, 0.08]
+const MIN_MIDI_NOTE = 36 // C2
+const MAX_MIDI_NOTE = 79 // G5
+const HARMONIC_WEIGHTS = [1, 0.55, 0.3, 0.18]
 
 const harmonicFrequenciesByPitchClass = (() => {
   const pitchClassBuckets: number[][] = Array.from({ length: 12 }, () => [])
@@ -95,6 +96,30 @@ const createMonoBuffer = (buffer: AudioBuffer): Float32Array => {
   }
 
   return mono
+}
+
+const downsampleMonoBuffer = (
+  mono: Float32Array,
+  sampleRate: number,
+  targetSampleRate?: number
+): { samples: Float32Array; sampleRate: number } => {
+  if (!targetSampleRate || targetSampleRate >= sampleRate || targetSampleRate <= 0) {
+    return { samples: mono, sampleRate }
+  }
+
+  const stride = Math.max(1, Math.floor(sampleRate / targetSampleRate))
+  if (stride === 1) {
+    return { samples: mono, sampleRate }
+  }
+
+  const nextLength = Math.ceil(mono.length / stride)
+  const downsampled = new Float32Array(nextLength)
+
+  for (let i = 0, j = 0; i < mono.length; i += stride, j += 1) {
+    downsampled[j] = mono[i] ?? 0
+  }
+
+  return { samples: downsampled, sampleRate: sampleRate / stride }
 }
 
 const applyHannWindow = (frame: Float32Array): Float32Array => {
@@ -409,29 +434,35 @@ export const analyzeChordTimeline = async (
   buffer: AudioBuffer,
   options: ChordAnalysisOptions = {}
 ): Promise<ChordSnapshot[]> => {
-  const windowSeconds = options.windowSeconds ?? 1.1
-  const hopSeconds = options.hopSeconds ?? 0.25
+  const windowSeconds = options.windowSeconds ?? 1.4
+  const hopSeconds = options.hopSeconds ?? 0.4
   const minimumConfidence = options.minimumConfidence ?? 0.18
   const stableFrameCount = options.stableFrameCount ?? 4
   const yieldEveryFrames = options.yieldEveryFrames ?? 10
   const silenceThreshold = 0.006
+  const targetSampleRate = options.targetSampleRate ?? 11025
 
   const mono = createMonoBuffer(buffer)
-  const windowSize = Math.max(1, Math.floor(buffer.sampleRate * windowSeconds))
-  const hopSize = Math.max(1, Math.floor(buffer.sampleRate * hopSeconds))
+  const { samples, sampleRate } = downsampleMonoBuffer(
+    mono,
+    buffer.sampleRate,
+    targetSampleRate
+  )
+  const windowSize = Math.max(1, Math.floor(sampleRate * windowSeconds))
+  const hopSize = Math.max(1, Math.floor(sampleRate * hopSeconds))
 
   const frames: ChordSnapshot[] = []
   let frameIndex = 0
 
-  for (let start = 0; start < mono.length; start += hopSize) {
-    const end = Math.min(start + windowSize, mono.length)
-    const frame = mono.subarray(start, end)
+  for (let start = 0; start < samples.length; start += hopSize) {
+    const end = Math.min(start + windowSize, samples.length)
+    const frame = samples.subarray(start, end)
     const windowed = applyHannWindow(frame)
     const rms = computeRms(windowed)
 
     if (rms < silenceThreshold) {
       frames.push({
-        time: start / buffer.sampleRate,
+        time: start / sampleRate,
         chord: "Unclear",
         confidence: 0,
       })
@@ -444,7 +475,7 @@ export const analyzeChordTimeline = async (
 
     const { energies, bassEnergies } = computePitchClassEnergies(
       windowed,
-      buffer.sampleRate
+      sampleRate
     )
     const { chord, confidence } = pickBestChord(
       energies,
@@ -453,7 +484,7 @@ export const analyzeChordTimeline = async (
     )
 
     frames.push({
-      time: start / buffer.sampleRate,
+      time: start / sampleRate,
       chord,
       confidence,
     })
