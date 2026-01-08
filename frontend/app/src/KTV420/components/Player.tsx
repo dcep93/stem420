@@ -329,8 +329,10 @@ export default function Player({ record, onClose }: PlayerProps) {
       const frequency =
         minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
       const resonance = 3 + wahAmount * 9;
-      const wetMix = wahAmount;
-      const dryMix = 1 - wahAmount;
+      const crossfadeAngle = wahAmount * (Math.PI / 2);
+      const dryMix = Math.cos(crossfadeAngle);
+      const wetMix = Math.sin(crossfadeAngle);
+      const makeupGain = 1 + wahAmount * 0.6;
 
       wahNodes.filter.type = "bandpass";
       wahNodes.filter.frequency.setTargetAtTime(
@@ -340,7 +342,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       );
       wahNodes.filter.Q.setTargetAtTime(resonance, context.currentTime, 0.01);
       wahNodes.wetGain.gain.setTargetAtTime(
-        wetMix,
+        wetMix * makeupGain,
         context.currentTime,
         0.01
       );
