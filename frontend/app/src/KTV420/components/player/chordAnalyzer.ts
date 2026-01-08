@@ -64,7 +64,22 @@ const CHORD_TEMPLATES: Array<{
 
 const MIN_MIDI_NOTE = 36 // C2
 const MAX_MIDI_NOTE = 79 // G5
-const HARMONIC_WEIGHTS = [1, 0.55, 0.3, 0.18]
+const HARMONIC_WEIGHTS = [1, 0.6, 0.34, 0.2]
+const EXTENSION_INTERVALS: Record<ChordQuality, number | null> = {
+  major: null,
+  minor: null,
+  power: null,
+  sus2: null,
+  suspended: null,
+  dom7: 10,
+  maj7: 11,
+  min7: 10,
+  maj9: 2,
+  min9: 2,
+  dim: null,
+  aug: null,
+  unknown: null,
+}
 
 const harmonicFrequenciesByPitchClass = (() => {
   const pitchClassBuckets: number[][] = Array.from({ length: 12 }, () => [])
@@ -182,12 +197,27 @@ const goertzelMagnitude = (
   return Math.sqrt(real * real + imag * imag)
 }
 
-const normalizePitchEnergies = (energies: number[]): number[] => {
+const normalizePitchEnergies = (energies: number[], smoothing = 0.18): number[] => {
   const mean =
     energies.reduce((sum, value) => sum + value, 0) / Math.max(1, energies.length)
-  const centered = energies.map((value) => Math.max(0, value - mean * 0.6))
-  const total = centered.reduce((sum, value) => sum + value, 0) + 1e-6
-  return centered.map((value) => value / total)
+  const centered = energies.map((value) => Math.max(0, value - mean * 0.5))
+
+  const smoothed = centered.map((value, index) => {
+    const prev = centered[(index + 11) % 12] ?? 0
+    const next = centered[(index + 1) % 12] ?? 0
+    return value * (1 - smoothing) + (prev + next) * (smoothing / 2)
+  })
+
+  const tempered = smoothed.map((value) => Math.pow(value, 0.85))
+  const total = tempered.reduce((sum, value) => sum + value, 0) + 1e-6
+  return tempered.map((value) => value / total)
+}
+
+const computePitchClarity = (energies: number[]): number => {
+  const total = energies.reduce((sum, value) => sum + value, 0) + 1e-6
+  const sorted = [...energies].sort((a, b) => b - a)
+  const topEnergy = (sorted[0] ?? 0) + (sorted[1] ?? 0) + (sorted[2] ?? 0)
+  return topEnergy / total
 }
 
 const computePitchClassEnergies = (
@@ -212,9 +242,10 @@ const computePitchClassEnergies = (
         harmonicSum += harmonic * weight
       })
 
-      energy += harmonicSum
+      const tilt = 1 / Math.sqrt(Math.max(1, frequency / 55))
+      energy += harmonicSum * tilt
       if (frequency <= 196) {
-        bassEnergy += harmonicSum * 1.3
+        bassEnergy += harmonicSum * 1.3 * tilt
       }
     })
 
@@ -222,8 +253,13 @@ const computePitchClassEnergies = (
     bassEnergies[pitchClass] = Math.log1p(bassEnergy)
   })
 
-  const normalized = normalizePitchEnergies(energies)
-  const normalizedBass = normalizePitchEnergies(bassEnergies)
+  const normalized = normalizePitchEnergies(
+    energies.map((value) => Math.pow(value, 1.3))
+  )
+  const normalizedBass = normalizePitchEnergies(
+    bassEnergies.map((value) => Math.pow(value, 1.1)),
+    0.1
+  )
 
   return { energies: normalized, bassEnergies: normalizedBass }
 }
@@ -263,6 +299,7 @@ const scoreChordTemplate = (
   const baseIntervals = getBaseIntervals(quality)
   const baseIntervalSet = new Set(baseIntervals)
   const chordMask = new Array(12).fill(0)
+  const extensionInterval = EXTENSION_INTERVALS[quality]
 
   intervals.forEach((interval, index) => {
     const isRoot = index === 0
@@ -274,24 +311,38 @@ const scoreChordTemplate = (
   let matchEnergy = 0
   let baseEnergy = 0
   let offEnergy = 0
+  let weightedEnergy = 0
+  let weightedChord = 0
+  let extensionEnergy = 0
 
   pitchEnergies.forEach((energy, pitchClass) => {
     const weight = chordMask[pitchClass] ?? 0
+    weightedEnergy += energy * energy
     if (weight > 0) {
       matchEnergy += energy * weight
+      weightedChord += weight * weight
       if (weight >= 1) {
         baseEnergy += energy * weight
       }
     } else {
       offEnergy += energy
     }
+    if (extensionInterval !== null && pitchClass === (root + extensionInterval) % 12) {
+      extensionEnergy = energy
+    }
   })
 
   const coverage = matchEnergy
-  const purity = Math.max(0, 1 - offEnergy * 1.15)
-  const stability = baseEnergy * 0.6 + coverage * 0.4
-  const score = (coverage * purity + stability) * template.weight
-  const confidence = Math.min(1, coverage * 1.2 + stability * 0.3)
+  const cosine =
+    matchEnergy /
+    (Math.sqrt(weightedEnergy) * Math.sqrt(weightedChord) + 1e-6)
+  const purity = Math.max(0, 1 - offEnergy * 0.95)
+  const stability = baseEnergy * 0.65 + coverage * 0.35
+  const extensionPenalty =
+    extensionInterval === null ? 1 : extensionEnergy < 0.06 ? 0.84 : 1
+  const score =
+    (cosine * 0.6 + stability * 0.4) * purity * template.weight * extensionPenalty
+  const confidence = Math.min(1, cosine * 0.7 + stability * 0.35) * extensionPenalty
   const label = formatChordLabel(root, quality)
 
   return { chord: label, score, confidence }
@@ -337,6 +388,9 @@ const pickBestChord = (
 ): { chord: string; confidence: number } => {
   const bassAverage =
     bassEnergies.reduce((sum, value) => sum + value, 0) / bassEnergies.length
+  const clarity = computePitchClarity(pitchEnergies)
+  const dynamicMinimum =
+    minimumConfidence + Math.max(0, 0.28 - clarity) * 0.7
 
   let best: { chord: string; score: number; confidence: number } = {
     chord: "Unclear",
@@ -347,7 +401,11 @@ const pickBestChord = (
   for (let root = 0; root < 12; root++) {
     CHORD_TEMPLATES.forEach((template) => {
       const candidate = scoreChordTemplate(root, template, pitchEnergies)
-      const bassBoost = Math.max(0, (bassEnergies[root] ?? 0) - bassAverage) * 0.8
+      const rootBass = bassEnergies[root] ?? 0
+      const fifthBass = bassEnergies[(root + 7) % 12] ?? 0
+      const bassBoost =
+        Math.max(0, rootBass - bassAverage) * 0.9 +
+        Math.max(0, fifthBass - bassAverage) * 0.3
       const weightedScore = candidate.score + bassBoost
 
       if (weightedScore > best.score) {
@@ -357,7 +415,7 @@ const pickBestChord = (
     })
   }
 
-  if (best.confidence < minimumConfidence) {
+  if (best.confidence < dynamicMinimum) {
     return { chord: "Unclear", confidence: best.confidence }
   }
 
