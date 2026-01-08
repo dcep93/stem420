@@ -4,12 +4,21 @@ export type ChordSnapshot = {
   confidence: number
 }
 
-type ChordQuality = "major" | "minor" | "power" | "suspended" | "unknown"
+type ChordQuality =
+  | "major"
+  | "minor"
+  | "power"
+  | "suspended"
+  | "dom7"
+  | "maj7"
+  | "unknown"
 
 type ChordAnalysisOptions = {
   windowSeconds?: number
   hopSeconds?: number
   minimumConfidence?: number
+  stableFrameCount?: number
+  yieldEveryFrames?: number
 }
 
 const NOTE_LABELS = [
@@ -35,6 +44,8 @@ const CHORD_TEMPLATES: Array<{
   { quality: "minor", intervals: [0, 3, 7] },
   { quality: "suspended", intervals: [0, 5, 7] },
   { quality: "power", intervals: [0, 7] },
+  { quality: "dom7", intervals: [0, 4, 7, 10] },
+  { quality: "maj7", intervals: [0, 4, 7, 11] },
 ]
 
 const MIN_MIDI_NOTE = 40 // E2
@@ -172,6 +183,67 @@ const pickBestChord = (
   return { chord: best.chord, confidence: best.confidence }
 }
 
+const yieldToBrowser = () =>
+  new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve())
+    } else {
+      setTimeout(resolve, 0)
+    }
+  })
+
+const smoothChordFrames = (
+  frames: ChordSnapshot[],
+  stableFrameCount: number
+): ChordSnapshot[] => {
+  if (!frames.length) {
+    return []
+  }
+
+  if (stableFrameCount <= 1) {
+    return frames
+  }
+
+  const snapshots: ChordSnapshot[] = [frames[0]!]
+  let currentChord = frames[0]!.chord
+  let pendingChord = ""
+  let pendingCount = 0
+  let pendingTime = frames[0]!.time
+  let pendingConfidence = frames[0]!.confidence
+
+  for (let i = 1; i < frames.length; i++) {
+    const frame = frames[i]!
+
+    if (frame.chord === currentChord) {
+      pendingChord = ""
+      pendingCount = 0
+      continue
+    }
+
+    if (frame.chord !== pendingChord) {
+      pendingChord = frame.chord
+      pendingCount = 1
+      pendingTime = frame.time
+      pendingConfidence = frame.confidence
+    } else {
+      pendingCount += 1
+    }
+
+    if (pendingCount >= stableFrameCount) {
+      currentChord = pendingChord
+      snapshots.push({
+        time: pendingTime,
+        chord: pendingChord,
+        confidence: pendingConfidence,
+      })
+      pendingChord = ""
+      pendingCount = 0
+    }
+  }
+
+  return snapshots
+}
+
 export const analyzeChordTimeline = async (
   buffer: AudioBuffer,
   options: ChordAnalysisOptions = {}
@@ -179,12 +251,15 @@ export const analyzeChordTimeline = async (
   const windowSeconds = options.windowSeconds ?? 0.8
   const hopSeconds = options.hopSeconds ?? 0.35
   const minimumConfidence = options.minimumConfidence ?? 0.12
+  const stableFrameCount = options.stableFrameCount ?? 2
+  const yieldEveryFrames = options.yieldEveryFrames ?? 10
 
   const mono = createMonoBuffer(buffer)
   const windowSize = Math.max(1, Math.floor(buffer.sampleRate * windowSeconds))
   const hopSize = Math.max(1, Math.floor(buffer.sampleRate * hopSeconds))
 
-  const snapshots: ChordSnapshot[] = []
+  const frames: ChordSnapshot[] = []
+  let frameIndex = 0
 
   for (let start = 0; start < mono.length; start += hopSize) {
     const end = Math.min(start + windowSize, mono.length)
@@ -192,14 +267,19 @@ export const analyzeChordTimeline = async (
     const pitchEnergies = computePitchClassEnergies(frame, buffer.sampleRate)
     const { chord, confidence } = pickBestChord(pitchEnergies, minimumConfidence)
 
-    if (!snapshots.length || snapshots[snapshots.length - 1]?.chord !== chord) {
-      snapshots.push({
-        time: start / buffer.sampleRate,
-        chord,
-        confidence,
-      })
+    frames.push({
+      time: start / buffer.sampleRate,
+      chord,
+      confidence,
+    })
+
+    frameIndex += 1
+    if (yieldEveryFrames > 0 && frameIndex % yieldEveryFrames === 0) {
+      await yieldToBrowser()
     }
   }
 
-  return snapshots
+  const smoothedFrames = smoothChordFrames(frames, stableFrameCount)
+
+  return smoothedFrames
 }

@@ -520,22 +520,52 @@ export default function Player({ record, onClose }: PlayerProps) {
         if (track.isInput) {
           setChordStatus("Analyzing harmony from input track...");
 
-          try {
-            const timeline = await analyzeChordTimeline(audioBuffer);
+          const runChordAnalysis = async () => {
+            if (isCancelled) {
+              return;
+            }
 
-            if (!isCancelled) {
-              setChordTimeline(timeline);
-              setChordStatus(
-                timeline.length
-                  ? "Harmonic map ready"
-                  : "No obvious chords detected"
-              );
+            try {
+              const timeline = await analyzeChordTimeline(audioBuffer, {
+                stableFrameCount: 2,
+                yieldEveryFrames: 8,
+              });
+
+              if (!isCancelled) {
+                setChordTimeline(timeline);
+                setChordStatus(
+                  timeline.length
+                    ? "Harmonic map ready"
+                    : "No obvious chords detected"
+                );
+              }
+            } catch (chordError) {
+              console.error("Failed to analyze chord timeline", chordError);
+              if (!isCancelled) {
+                setChordStatus("Unable to analyze chords for this input");
+              }
             }
-          } catch (chordError) {
-            console.error("Failed to analyze chord timeline", chordError);
-            if (!isCancelled) {
-              setChordStatus("Unable to analyze chords for this input");
-            }
+          };
+
+          const idleCallback =
+            (window as Window & {
+              requestIdleCallback?: (
+                callback: IdleRequestCallback,
+                options?: IdleRequestOptions
+              ) => number;
+            }).requestIdleCallback;
+
+          if (idleCallback) {
+            idleCallback(
+              () => {
+                void runChordAnalysis();
+              },
+              { timeout: 1000 }
+            );
+          } else {
+            setTimeout(() => {
+              void runChordAnalysis();
+            }, 0);
           }
         }
       } catch (error) {
