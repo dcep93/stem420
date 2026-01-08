@@ -646,9 +646,15 @@ export default function Player({ record, onClose }: PlayerProps) {
       }
     };
 
-    tracks.forEach((track) => {
-      void analyzeTrack(track);
-    });
+    void (async () => {
+      for (const track of tracks) {
+        if (isCancelled) {
+          return;
+        }
+
+        await analyzeTrack(track);
+      }
+    })();
 
     return () => {
       isCancelled = true;
