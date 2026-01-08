@@ -321,21 +321,25 @@ export default function Player({ record, onClose }: PlayerProps) {
       }
 
       const LOUDNESS_BOTTOM = 0.5; // [0..1]
-      const LOUDNESS_TOP = 1.0; // [0..1]
+      const LOUDNESS_TOP = 0.7; // [0..1]
+
+      // Max boost at the extreme (in dB). 36 dB ~= 63x gain. Distortion expected at 1.0.
+      const MAX_EDGE_DB = 36;
 
       const normalized = Math.min(
         1,
         Math.max(0, position ?? wahPositionsRef.current[trackId] ?? 0.5)
       );
 
-      // Edge emphasis (near 0/1 only)
-      const bottomEdge = Math.pow(1 - normalized, 3.2);
-      const topEdge = Math.pow(normalized, 3.2);
+      // Edge emphasis (ramps late/fast near 0 and 1)
+      const bottomEdge = Math.pow(1 - normalized, 3.5);
+      const topEdge = Math.pow(normalized, 3.5);
 
-      // Map [0..1] knobs -> strong gain at the corresponding extreme
-      const bottomGain = 1 + bottomEdge * LOUDNESS_BOTTOM * 18;
-      const topGain = 1 + topEdge * LOUDNESS_TOP * 18;
-      const edgeGain = Math.max(bottomGain, topGain);
+      // Map [0..1] knobs -> dB -> linear gain
+      const bottomDb = bottomEdge * LOUDNESS_BOTTOM * MAX_EDGE_DB;
+      const topDb = topEdge * LOUDNESS_TOP * MAX_EDGE_DB;
+      const edgeDb = Math.max(bottomDb, topDb);
+      const edgeGain = Math.pow(10, edgeDb / 20);
 
       // Original wah shaping
       const offsetFromCenter = normalized - 0.5;
@@ -346,10 +350,10 @@ export default function Player({ record, onClose }: PlayerProps) {
       const frequency =
         minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
 
-      const resonance = 3 + wahAmount * 9;
+      const resonance = 3 + wahAmount * 10;
 
       const crossfadeAngle = wahAmount * (Math.PI / 2);
-      const dryMix = Math.pow(Math.cos(crossfadeAngle), 3);
+      const dryMix = Math.pow(Math.cos(crossfadeAngle), 4);
       const wetMix = Math.sin(crossfadeAngle);
 
       wahNodes.filter.type = "bandpass";
