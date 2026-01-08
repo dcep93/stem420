@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  type PointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -806,6 +807,24 @@ export default function Player({ record, onClose }: PlayerProps) {
     pendingSeekRef.current = null;
   };
 
+  const handleCanvasSeek = useCallback(
+    (event: PointerEvent<HTMLCanvasElement>) => {
+      if (!duration) {
+        return;
+      }
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const position = rect.width
+        ? (event.clientX - rect.left) / rect.width
+        : 0;
+      const clamped = Math.min(1, Math.max(0, position));
+      const targetTime = clamped * duration;
+      pendingSeekRef.current = targetTime;
+      void commitSeek(targetTime);
+    },
+    [commitSeek, duration]
+  );
+
   const handlePlayPause = useCallback(async () => {
     if (!tracks.length) {
       return;
@@ -1074,6 +1093,7 @@ export default function Player({ record, onClose }: PlayerProps) {
             registerCanvas={(ref) => {
               canvasRefs.current[track.id] = ref;
             }}
+            onCanvasSeek={handleCanvasSeek}
           />
         ))}
       </div>

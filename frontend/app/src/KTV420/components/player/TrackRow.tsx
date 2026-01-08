@@ -1,4 +1,4 @@
-import { type CSSProperties } from "react";
+import { type CSSProperties, type PointerEvent } from "react";
 
 import { type Track } from "./types";
 
@@ -13,6 +13,7 @@ type TrackRowProps = {
   onToggleMute: (trackId: string) => void;
   onToggleDeafen: (trackId: string) => void;
   registerCanvas: (canvas: HTMLCanvasElement | null) => void;
+  onCanvasSeek: (event: PointerEvent<HTMLCanvasElement>) => void;
 };
 
 export function TrackRow({
@@ -26,6 +27,7 @@ export function TrackRow({
   onToggleMute,
   onToggleDeafen,
   registerCanvas,
+  onCanvasSeek,
 }: TrackRowProps) {
   const label = track.isInput
     ? `Input: ${track.name}`
@@ -114,11 +116,13 @@ export function TrackRow({
           ref={registerCanvas}
           width={520}
           height={120}
+          onPointerDown={onCanvasSeek}
           style={{
             border: "1px solid #333",
             background: "linear-gradient(90deg, #0b0f19, #0f0b19)",
             width: "100%",
             display: "block",
+            cursor: "pointer",
           }}
         />
       </div>
