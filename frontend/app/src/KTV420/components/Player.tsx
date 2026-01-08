@@ -16,6 +16,10 @@ import {
   type Track,
   type VisualizerType,
 } from "./player/types";
+import {
+  analyzeChordTimeline,
+  type ChordSnapshot,
+} from "./player/chordAnalyzer";
 import { drawVisualizer } from "./player/visualizers";
 
 const visualizerOptions: Array<{
@@ -87,6 +91,9 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [wahPositions, setWahPositions] = useState<Record<string, number>>({});
   const [readyTrackIds, setReadyTrackIds] = useState<string[]>([]);
   const [isClearingCache, setIsClearingCache] = useState(false);
+  const [chordTimeline, setChordTimeline] = useState<ChordSnapshot[]>([]);
+  const [chordStatus, setChordStatus] = useState<string>("Analyzing harmony...");
+  const [currentChord, setCurrentChord] = useState<string>("Detecting...");
   const isAnyTrackDeafened = useMemo(
     () => Object.values(trackDeafenStates).some(Boolean),
     [trackDeafenStates]
@@ -135,6 +142,9 @@ export default function Player({ record, onClose }: PlayerProps) {
 
   const primaryTrack = tracks.find((track) => track.isInput) ?? tracks[0];
   const playerTitle = primaryTrack?.name ?? "Playback";
+  const chordDisplay = chordTimeline.length
+    ? currentChord
+    : chordStatus ?? "Analyzing harmony...";
 
   const trackLookup = useMemo(() => {
     return tracks.reduce<Record<string, Track>>((lookup, track) => {
@@ -456,10 +466,10 @@ export default function Player({ record, onClose }: PlayerProps) {
           [track.id]: previous[track.id] ?? 0.5,
         }));
 
-        setDuration((previous) => {
-          const maxDuration = Math.max(previous, audioBuffer.duration);
-          return Number.isFinite(maxDuration) ? maxDuration : 0;
-        });
+    setDuration((previous) => {
+      const maxDuration = Math.max(previous, audioBuffer.duration);
+      return Number.isFinite(maxDuration) ? maxDuration : 0;
+    });
 
         const windowSize = Math.max(
           1,
@@ -506,6 +516,28 @@ export default function Player({ record, onClose }: PlayerProps) {
 
           return [...previous, track.id];
         });
+
+        if (track.isInput) {
+          setChordStatus("Analyzing harmony from input track...");
+
+          try {
+            const timeline = await analyzeChordTimeline(audioBuffer);
+
+            if (!isCancelled) {
+              setChordTimeline(timeline);
+              setChordStatus(
+                timeline.length
+                  ? "Harmonic map ready"
+                  : "No obvious chords detected"
+              );
+            }
+          } catch (chordError) {
+            console.error("Failed to analyze chord timeline", chordError);
+            if (!isCancelled) {
+              setChordStatus("Unable to analyze chords for this input");
+            }
+          }
+        }
       } catch (error) {
         console.error("Failed to analyze track envelope", track.name, error);
       }
@@ -634,6 +666,32 @@ export default function Player({ record, onClose }: PlayerProps) {
       }
     };
   }, [currentPlaybackTime, duration, isPlaying, stopAllSources]);
+
+  useEffect(() => {
+    // Keep the displayed chord in sync with the transport position.
+    if (!chordTimeline.length) {
+      setCurrentChord(chordStatus ?? "Analyzing harmony...");
+      return;
+    }
+
+    let activeChord = chordTimeline[0]?.chord ?? "Unclear";
+
+    for (let i = 0; i < chordTimeline.length; i++) {
+      const snapshot = chordTimeline[i];
+
+      if (!snapshot) {
+        continue;
+      }
+
+      if (snapshot.time <= currentTime) {
+        activeChord = snapshot.chord;
+      } else {
+        break;
+      }
+    }
+
+    setCurrentChord(activeChord);
+  }, [chordStatus, chordTimeline, currentTime]);
 
   const schedulePlayback = useCallback(
     async (offsetSeconds: number) => {
@@ -860,6 +918,17 @@ export default function Player({ record, onClose }: PlayerProps) {
     }
   }, [onClose, record.md5]);
 
+  useEffect(() => {
+    // Reset chord-related UI when the primary track changes.
+    setChordTimeline([]);
+    setChordStatus(
+      primaryTrack
+        ? "Analyzing harmony..."
+        : "No input track available for analysis"
+    );
+    setCurrentChord(primaryTrack ? "Detecting..." : "No input track available");
+  }, [primaryTrack]);
+
   if (!tracks.length) {
     return null;
   }
@@ -919,6 +988,21 @@ export default function Player({ record, onClose }: PlayerProps) {
             />
             <span style={{ whiteSpace: "nowrap", minWidth: "120px" }}>
               {formattedTime(currentTime)} / {formattedTime(duration)}
+            </span>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              minWidth: "200px",
+              color: "#cbd5e1",
+            }}
+            aria-label="Detected chord"
+          >
+            <span style={{ fontWeight: 700, color: "#e5e7eb" }}>Chord:</span>
+            <span style={{ fontStyle: chordTimeline.length ? "normal" : "italic" }}>
+              {chordDisplay}
             </span>
           </div>
           <button
