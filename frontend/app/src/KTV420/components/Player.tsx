@@ -877,18 +877,6 @@ export default function Player({ record, onClose }: PlayerProps) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isInteractiveTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        target instanceof HTMLButtonElement ||
-        target?.isContentEditable;
-
-      if (isInteractiveTarget) {
-        return;
-      }
-
       if (event.code === "Space" || event.key === " ") {
         event.preventDefault();
         void handlePlayPause();
