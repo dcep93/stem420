@@ -47,22 +47,23 @@ const CHORD_TEMPLATES: Array<{
   intervals: number[]
   weight: number
 }> = [
-  { quality: "major", intervals: [0, 4, 7], weight: 1.12 },
-  { quality: "minor", intervals: [0, 3, 7], weight: 1.1 },
-  { quality: "dom7", intervals: [0, 4, 7, 10], weight: 0.85 },
-  { quality: "maj7", intervals: [0, 4, 7, 11], weight: 0.82 },
-  { quality: "min7", intervals: [0, 3, 7, 10], weight: 0.82 },
-  { quality: "maj9", intervals: [0, 4, 7, 2], weight: 0.78 },
-  { quality: "min9", intervals: [0, 3, 7, 2], weight: 0.78 },
-  { quality: "sus2", intervals: [0, 2, 7], weight: 0.95 },
-  { quality: "suspended", intervals: [0, 5, 7], weight: 0.95 },
-  { quality: "power", intervals: [0, 7], weight: 0.85 },
-  { quality: "dim", intervals: [0, 3, 6], weight: 0.7 },
-  { quality: "aug", intervals: [0, 4, 8], weight: 0.7 },
+  { quality: "major", intervals: [0, 4, 7], weight: 1.15 },
+  { quality: "minor", intervals: [0, 3, 7], weight: 1.14 },
+  { quality: "dom7", intervals: [0, 4, 7, 10], weight: 0.92 },
+  { quality: "maj7", intervals: [0, 4, 7, 11], weight: 0.9 },
+  { quality: "min7", intervals: [0, 3, 7, 10], weight: 0.9 },
+  { quality: "maj9", intervals: [0, 4, 7, 2], weight: 0.82 },
+  { quality: "min9", intervals: [0, 3, 7, 2], weight: 0.82 },
+  { quality: "sus2", intervals: [0, 2, 7], weight: 0.98 },
+  { quality: "suspended", intervals: [0, 5, 7], weight: 0.98 },
+  { quality: "power", intervals: [0, 7], weight: 0.88 },
+  { quality: "dim", intervals: [0, 3, 6], weight: 0.72 },
+  { quality: "aug", intervals: [0, 4, 8], weight: 0.72 },
 ]
 
-const MIN_MIDI_NOTE = 36 // C2
-const MAX_MIDI_NOTE = 80 // G#5
+const MIN_MIDI_NOTE = 33 // A1
+const MAX_MIDI_NOTE = 84 // C6
+const HARMONIC_WEIGHTS = [1, 0.6, 0.35, 0.2, 0.12, 0.08]
 
 const harmonicFrequenciesByPitchClass = (() => {
   const pitchClassBuckets: number[][] = Array.from({ length: 12 }, () => [])
@@ -156,6 +157,14 @@ const goertzelMagnitude = (
   return Math.sqrt(real * real + imag * imag)
 }
 
+const normalizePitchEnergies = (energies: number[]): number[] => {
+  const mean =
+    energies.reduce((sum, value) => sum + value, 0) / Math.max(1, energies.length)
+  const centered = energies.map((value) => Math.max(0, value - mean * 0.6))
+  const total = centered.reduce((sum, value) => sum + value, 0) + 1e-6
+  return centered.map((value) => value / total)
+}
+
 const computePitchClassEnergies = (
   frame: Float32Array,
   sampleRate: number
@@ -167,15 +176,20 @@ const computePitchClassEnergies = (
     let energy = 0
     let bassEnergy = 0
 
-    // Aggregate energy from several octaves and reinforce the first harmonics.
     frequencies.forEach((frequency) => {
-      const base = goertzelMagnitude(frame, sampleRate, frequency)
-      const second = goertzelMagnitude(frame, sampleRate, frequency * 2) * 0.5
-      const third = goertzelMagnitude(frame, sampleRate, frequency * 3) * 0.25
-      energy += base + second + third
+      let harmonicSum = 0
+      HARMONIC_WEIGHTS.forEach((weight, index) => {
+        const harmonic = goertzelMagnitude(
+          frame,
+          sampleRate,
+          frequency * (index + 1)
+        )
+        harmonicSum += harmonic * weight
+      })
 
-      if (frequency <= 220) {
-        bassEnergy += base * 1.2 + second * 0.4
+      energy += harmonicSum
+      if (frequency <= 196) {
+        bassEnergy += harmonicSum * 1.3
       }
     })
 
@@ -183,7 +197,10 @@ const computePitchClassEnergies = (
     bassEnergies[pitchClass] = Math.log1p(bassEnergy)
   })
 
-  return { energies, bassEnergies }
+  const normalized = normalizePitchEnergies(energies)
+  const normalizedBass = normalizePitchEnergies(bassEnergies)
+
+  return { energies: normalized, bassEnergies: normalizedBass }
 }
 
 const getBaseIntervals = (quality: ChordQuality): number[] => {
@@ -215,63 +232,41 @@ const getBaseIntervals = (quality: ChordQuality): number[] => {
 const scoreChordTemplate = (
   root: number,
   template: (typeof CHORD_TEMPLATES)[number],
-  pitchEnergies: number[],
-  energySum: number
+  pitchEnergies: number[]
 ): { chord: string; score: number; confidence: number } => {
   const { quality, intervals } = template
-  const rootEnergy = pitchEnergies[root] ?? 0
   const baseIntervals = getBaseIntervals(quality)
   const baseIntervalSet = new Set(baseIntervals)
+  const chordMask = new Array(12).fill(0)
 
-  let chordEnergy = 0
-  let baseEnergy = 0
-  let extensionEnergy = 0
   intervals.forEach((interval, index) => {
-    const baseWeight = index === 0 ? 1.3 : 1
-    const isBaseInterval = baseIntervalSet.has(interval)
-    const extensionWeight = isBaseInterval
-      ? 1
-      : interval === 2
-        ? 0.45
-        : 0.55
-    const energy =
-      (pitchEnergies[(root + interval) % 12] ?? 0) *
-      baseWeight *
-      extensionWeight
+    const isRoot = index === 0
+    const isBase = baseIntervalSet.has(interval)
+    const weight = isRoot ? 1.4 : isBase ? 1.1 : interval === 2 ? 0.55 : 0.7
+    chordMask[(root + interval) % 12] = weight
+  })
 
-    chordEnergy += energy
-    if (isBaseInterval) {
-      baseEnergy += energy
+  let matchEnergy = 0
+  let baseEnergy = 0
+  let offEnergy = 0
+
+  pitchEnergies.forEach((energy, pitchClass) => {
+    const weight = chordMask[pitchClass] ?? 0
+    if (weight > 0) {
+      matchEnergy += energy * weight
+      if (weight >= 1) {
+        baseEnergy += energy * weight
+      }
     } else {
-      extensionEnergy += energy
+      offEnergy += energy
     }
   })
 
-  // Reward stable roots so we do not oscillate between enharmonic matches.
-  const dissonance = Math.max(0, energySum - chordEnergy)
-  const hasExtensions = intervals.some((interval) => !baseIntervalSet.has(interval))
-  const extensionFloor = baseEnergy * (() => {
-    if (intervals.includes(2)) {
-      return 0.6
-    }
-
-    if (intervals.includes(10) || intervals.includes(11)) {
-      return 0.55
-    }
-
-    return 0.28
-  })()
-  const extensionPenalty = hasExtensions
-    ? Math.max(0, extensionFloor - extensionEnergy) * 0.7
-    : 0
-  const score =
-    chordEnergy * template.weight +
-    rootEnergy * 0.2 -
-    dissonance * 0.12 -
-    extensionPenalty
-
-  const confidence =
-    energySum > 0 ? (baseEnergy + extensionEnergy * 0.6) / energySum : 0
+  const coverage = matchEnergy
+  const purity = Math.max(0, 1 - offEnergy * 1.15)
+  const stability = baseEnergy * 0.6 + coverage * 0.4
+  const score = (coverage * purity + stability) * template.weight
+  const confidence = Math.min(1, coverage * 1.2 + stability * 0.3)
   const label = formatChordLabel(root, quality)
 
   return { chord: label, score, confidence }
@@ -315,7 +310,6 @@ const pickBestChord = (
   bassEnergies: number[],
   minimumConfidence: number
 ): { chord: string; confidence: number } => {
-  const energySum = pitchEnergies.reduce((sum, value) => sum + value, 0) + 1e-6
   const bassAverage =
     bassEnergies.reduce((sum, value) => sum + value, 0) / bassEnergies.length
 
@@ -327,9 +321,8 @@ const pickBestChord = (
 
   for (let root = 0; root < 12; root++) {
     CHORD_TEMPLATES.forEach((template) => {
-      const candidate = scoreChordTemplate(root, template, pitchEnergies, energySum)
-
-      const bassBoost = Math.max(0, (bassEnergies[root] ?? 0) - bassAverage) * 0.6
+      const candidate = scoreChordTemplate(root, template, pitchEnergies)
+      const bassBoost = Math.max(0, (bassEnergies[root] ?? 0) - bassAverage) * 0.8
       const weightedScore = candidate.score + bassBoost
 
       if (weightedScore > best.score) {
@@ -367,44 +360,45 @@ const smoothChordFrames = (
     return frames
   }
 
-  const snapshots: ChordSnapshot[] = [frames[0]!]
-  let currentChord = frames[0]!.chord
-  let pendingChord = ""
-  let pendingCount = 0
-  let pendingTime = frames[0]!.time
-  let pendingConfidence = frames[0]!.confidence
+  const snapshots: ChordSnapshot[] = []
+  const window = Math.max(3, stableFrameCount * 2 - 1)
 
-  for (let i = 1; i < frames.length; i++) {
-    const frame = frames[i]!
+  for (let i = 0; i < frames.length; i++) {
+    const start = Math.max(0, i - Math.floor(window / 2))
+    const end = Math.min(frames.length, start + window)
+    const tally = new Map<string, { count: number; confidence: number }>()
 
-    if (frame.chord === currentChord) {
-      pendingChord = ""
-      pendingCount = 0
-      continue
+    for (let j = start; j < end; j++) {
+      const frame = frames[j]!
+      if (frame.chord === "Unclear") {
+        continue
+      }
+
+      const entry = tally.get(frame.chord) ?? { count: 0, confidence: 0 }
+      entry.count += 1
+      entry.confidence += frame.confidence
+      tally.set(frame.chord, entry)
     }
 
-    if (frame.chord === "Unclear") {
-      continue
-    }
+    let bestChord = "Unclear"
+    let bestCount = 0
+    let bestConfidence = 0
 
-    if (frame.chord !== pendingChord) {
-      pendingChord = frame.chord
-      pendingCount = 1
-      pendingTime = frame.time
-      pendingConfidence = frame.confidence
-    } else {
-      pendingCount += 1
-    }
+    tally.forEach((entry, chord) => {
+      if (entry.count > bestCount) {
+        bestChord = chord
+        bestCount = entry.count
+        bestConfidence = entry.confidence / entry.count
+      }
+    })
 
-    if (pendingCount >= stableFrameCount) {
-      currentChord = pendingChord
+    const chord = bestCount >= stableFrameCount ? bestChord : "Unclear"
+    if (!snapshots.length || snapshots[snapshots.length - 1]!.chord !== chord) {
       snapshots.push({
-        time: pendingTime,
-        chord: pendingChord,
-        confidence: pendingConfidence,
+        time: frames[i]!.time,
+        chord,
+        confidence: chord === "Unclear" ? 0 : bestConfidence,
       })
-      pendingChord = ""
-      pendingCount = 0
     }
   }
 
@@ -415,12 +409,12 @@ export const analyzeChordTimeline = async (
   buffer: AudioBuffer,
   options: ChordAnalysisOptions = {}
 ): Promise<ChordSnapshot[]> => {
-  const windowSeconds = options.windowSeconds ?? 0.8
-  const hopSeconds = options.hopSeconds ?? 0.35
-  const minimumConfidence = options.minimumConfidence ?? 0.15
-  const stableFrameCount = options.stableFrameCount ?? 3
+  const windowSeconds = options.windowSeconds ?? 1.1
+  const hopSeconds = options.hopSeconds ?? 0.25
+  const minimumConfidence = options.minimumConfidence ?? 0.18
+  const stableFrameCount = options.stableFrameCount ?? 4
   const yieldEveryFrames = options.yieldEveryFrames ?? 10
-  const silenceThreshold = 0.008
+  const silenceThreshold = 0.006
 
   const mono = createMonoBuffer(buffer)
   const windowSize = Math.max(1, Math.floor(buffer.sampleRate * windowSeconds))
