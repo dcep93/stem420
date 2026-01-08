@@ -319,7 +319,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       const frequency =
         minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
       const resonance = 1.2 + Math.abs(offsetFromCenter) * 10;
-      const gainDb = 12 + Math.abs(offsetFromCenter) * 18;
+      const gainDb = Math.abs(offsetFromCenter) * 18;
 
       filterNode.type = "peaking";
       filterNode.frequency.setTargetAtTime(
