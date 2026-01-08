@@ -314,12 +314,13 @@ export default function Player({ record, onClose }: PlayerProps) {
         Math.max(0, position ?? wahPositionsRef.current[trackId] ?? 0.5)
       );
       const offsetFromCenter = normalized - 0.5;
-      const minFrequency = 180;
-      const maxFrequency = 7200;
+      const minFrequency = 300;
+      const maxFrequency = 3200;
       const frequency =
         minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
-      const resonance = 1.2 + Math.abs(offsetFromCenter) * 10;
-      const gainDb = Math.abs(offsetFromCenter) * 18;
+      const wahAmount = Math.abs(offsetFromCenter) * 2;
+      const resonance = 0.7 + wahAmount * 8;
+      const gainDb = offsetFromCenter * 24;
 
       filterNode.type = "peaking";
       filterNode.frequency.setTargetAtTime(
