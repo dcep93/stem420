@@ -96,7 +96,20 @@ export function TrackRow({
           <label
             style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
           >
-            <span style={{ color: "#cbd5e1", fontWeight: 600 }}>Wah</span>
+            <button
+              type="button"
+              onClick={() => onWahChange(track.id, 0.5)}
+              style={{
+                color: "#cbd5e1",
+                fontWeight: 600,
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+              }}
+            >
+              Wah
+            </button>
             <input
               type="range"
               min={0}
