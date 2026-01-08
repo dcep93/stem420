@@ -141,6 +141,17 @@ export default function Player({ record, onClose }: PlayerProps) {
       });
   }, [record]);
 
+  const inputTrack = useMemo(
+    () =>
+      tracks.find(
+        (track) => track.isInput && track.name.toLowerCase().endsWith(".mp3")
+      ) ??
+      tracks.find((track) => track.isInput) ??
+      null,
+    [tracks]
+  );
+  const inputTrackId = inputTrack?.id ?? null;
+
   const primaryTrack = tracks.find((track) => track.isInput) ?? tracks[0];
   const playerTitle = primaryTrack?.name ?? "Playback";
   const chordDisplay = chordTimeline.length
@@ -467,10 +478,10 @@ export default function Player({ record, onClose }: PlayerProps) {
           [track.id]: previous[track.id] ?? 0.5,
         }));
 
-    setDuration((previous) => {
-      const maxDuration = Math.max(previous, audioBuffer.duration);
-      return Number.isFinite(maxDuration) ? maxDuration : 0;
-    });
+        setDuration((previous) => {
+          const maxDuration = Math.max(previous, audioBuffer.duration);
+          return Number.isFinite(maxDuration) ? maxDuration : 0;
+        });
 
         const windowSize = Math.max(
           1,
@@ -518,8 +529,8 @@ export default function Player({ record, onClose }: PlayerProps) {
           return [...previous, track.id];
         });
 
-        if (track.isInput) {
-          setChordStatus("Analyzing harmony from input track...");
+        if (track.id === inputTrackId) {
+          setChordStatus("Analyzing harmony from input MP3...");
 
           const runChordAnalysis = async () => {
             if (isCancelled) {
@@ -528,7 +539,8 @@ export default function Player({ record, onClose }: PlayerProps) {
 
             try {
               const timeline = await analyzeChordTimeline(audioBuffer, {
-                stableFrameCount: 2,
+                stableFrameCount: 3,
+                minimumConfidence: 0.15,
                 yieldEveryFrames: 8,
               });
 
@@ -585,6 +597,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     applyWahPosition,
     ensureAudioContext,
     getEffectiveVolumeFromRefs,
+    inputTrackId,
     tracks,
   ]);
 
@@ -971,12 +984,12 @@ export default function Player({ record, onClose }: PlayerProps) {
     // Reset chord-related UI when the primary track changes.
     setChordTimeline([]);
     setChordStatus(
-      primaryTrack
+      inputTrackId
         ? "Analyzing harmony..."
-        : "No input track available for analysis"
+        : "No input MP3 available for analysis"
     );
-    setCurrentChord(primaryTrack ? "Detecting..." : "No input track available");
-  }, [primaryTrack]);
+    setCurrentChord(inputTrackId ? "Detecting..." : "No input MP3 available");
+  }, [inputTrackId]);
 
   if (!tracks.length) {
     return null;

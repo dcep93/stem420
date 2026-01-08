@@ -8,9 +8,13 @@ type ChordQuality =
   | "major"
   | "minor"
   | "power"
+  | "sus2"
   | "suspended"
   | "dom7"
   | "maj7"
+  | "min7"
+  | "dim"
+  | "aug"
   | "unknown"
 
 type ChordAnalysisOptions = {
@@ -39,17 +43,22 @@ const NOTE_LABELS = [
 const CHORD_TEMPLATES: Array<{
   quality: ChordQuality
   intervals: number[]
+  weight: number
 }> = [
-  { quality: "major", intervals: [0, 4, 7] },
-  { quality: "minor", intervals: [0, 3, 7] },
-  { quality: "suspended", intervals: [0, 5, 7] },
-  { quality: "power", intervals: [0, 7] },
-  { quality: "dom7", intervals: [0, 4, 7, 10] },
-  { quality: "maj7", intervals: [0, 4, 7, 11] },
+  { quality: "major", intervals: [0, 4, 7], weight: 1.12 },
+  { quality: "minor", intervals: [0, 3, 7], weight: 1.1 },
+  { quality: "dom7", intervals: [0, 4, 7, 10], weight: 1.02 },
+  { quality: "maj7", intervals: [0, 4, 7, 11], weight: 0.98 },
+  { quality: "min7", intervals: [0, 3, 7, 10], weight: 0.98 },
+  { quality: "sus2", intervals: [0, 2, 7], weight: 0.95 },
+  { quality: "suspended", intervals: [0, 5, 7], weight: 0.95 },
+  { quality: "power", intervals: [0, 7], weight: 0.85 },
+  { quality: "dim", intervals: [0, 3, 6], weight: 0.7 },
+  { quality: "aug", intervals: [0, 4, 8], weight: 0.7 },
 ]
 
-const MIN_MIDI_NOTE = 40 // E2
-const MAX_MIDI_NOTE = 76 // E5
+const MIN_MIDI_NOTE = 36 // C2
+const MAX_MIDI_NOTE = 80 // G#5
 
 const harmonicFrequenciesByPitchClass = (() => {
   const pitchClassBuckets: number[][] = Array.from({ length: 12 }, () => [])
@@ -83,6 +92,41 @@ const createMonoBuffer = (buffer: AudioBuffer): Float32Array => {
   return mono
 }
 
+const applyHannWindow = (frame: Float32Array): Float32Array => {
+  const length = frame.length
+  if (length === 0) {
+    return frame
+  }
+
+  let mean = 0
+  for (let i = 0; i < length; i++) {
+    mean += frame[i] ?? 0
+  }
+  mean /= length
+
+  const windowed = new Float32Array(length)
+  for (let i = 0; i < length; i++) {
+    const window = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (length - 1))
+    windowed[i] = ((frame[i] ?? 0) - mean) * window
+  }
+
+  return windowed
+}
+
+const computeRms = (frame: Float32Array): number => {
+  if (!frame.length) {
+    return 0
+  }
+
+  let sumSquares = 0
+  for (let i = 0; i < frame.length; i++) {
+    const sample = frame[i] ?? 0
+    sumSquares += sample * sample
+  }
+
+  return Math.sqrt(sumSquares / frame.length)
+}
+
 const goertzelMagnitude = (
   samples: Float32Array,
   sampleRate: number,
@@ -111,23 +155,31 @@ const goertzelMagnitude = (
 const computePitchClassEnergies = (
   frame: Float32Array,
   sampleRate: number
-): number[] => {
+): { energies: number[]; bassEnergies: number[] } => {
   const energies: number[] = []
+  const bassEnergies: number[] = []
 
   harmonicFrequenciesByPitchClass.forEach((frequencies, pitchClass) => {
     let energy = 0
+    let bassEnergy = 0
 
     // Aggregate energy from several octaves and reinforce the first harmonics.
     frequencies.forEach((frequency) => {
-      energy += goertzelMagnitude(frame, sampleRate, frequency)
-      energy += goertzelMagnitude(frame, sampleRate, frequency * 2) * 0.5
-      energy += goertzelMagnitude(frame, sampleRate, frequency * 3) * 0.25
+      const base = goertzelMagnitude(frame, sampleRate, frequency)
+      const second = goertzelMagnitude(frame, sampleRate, frequency * 2) * 0.5
+      const third = goertzelMagnitude(frame, sampleRate, frequency * 3) * 0.25
+      energy += base + second + third
+
+      if (frequency <= 220) {
+        bassEnergy += base * 1.2 + second * 0.4
+      }
     })
 
-    energies[pitchClass] = energy
+    energies[pitchClass] = Math.log1p(energy)
+    bassEnergies[pitchClass] = Math.log1p(bassEnergy)
   })
 
-  return energies
+  return { energies, bassEnergies }
 }
 
 const scoreChordTemplate = (
@@ -151,11 +203,12 @@ const scoreChordTemplate = (
   const confidence = energySum > 0 ? score / energySum : 0
   const label = `${NOTE_LABELS[root] ?? "?"} ${quality}`
 
-  return { chord: label, score, confidence }
+  return { chord: label, score: score * template.weight, confidence }
 }
 
 const pickBestChord = (
   pitchEnergies: number[],
+  bassEnergies: number[],
   minimumConfidence: number
 ): { chord: string; confidence: number } => {
   const energySum = pitchEnergies.reduce((sum, value) => sum + value, 0) + 1e-6
@@ -170,8 +223,12 @@ const pickBestChord = (
     CHORD_TEMPLATES.forEach((template) => {
       const candidate = scoreChordTemplate(root, template, pitchEnergies, energySum)
 
-      if (candidate.score > best.score) {
+      const bassBoost = (bassEnergies[root] ?? 0) * 0.35
+      const weightedScore = candidate.score + bassBoost
+
+      if (weightedScore > best.score) {
         best = candidate
+        best.score = weightedScore
       }
     })
   }
@@ -220,6 +277,10 @@ const smoothChordFrames = (
       continue
     }
 
+    if (frame.chord === "Unclear") {
+      continue
+    }
+
     if (frame.chord !== pendingChord) {
       pendingChord = frame.chord
       pendingCount = 1
@@ -250,9 +311,10 @@ export const analyzeChordTimeline = async (
 ): Promise<ChordSnapshot[]> => {
   const windowSeconds = options.windowSeconds ?? 0.8
   const hopSeconds = options.hopSeconds ?? 0.35
-  const minimumConfidence = options.minimumConfidence ?? 0.12
-  const stableFrameCount = options.stableFrameCount ?? 2
+  const minimumConfidence = options.minimumConfidence ?? 0.15
+  const stableFrameCount = options.stableFrameCount ?? 3
   const yieldEveryFrames = options.yieldEveryFrames ?? 10
+  const silenceThreshold = 0.008
 
   const mono = createMonoBuffer(buffer)
   const windowSize = Math.max(1, Math.floor(buffer.sampleRate * windowSeconds))
@@ -264,8 +326,31 @@ export const analyzeChordTimeline = async (
   for (let start = 0; start < mono.length; start += hopSize) {
     const end = Math.min(start + windowSize, mono.length)
     const frame = mono.subarray(start, end)
-    const pitchEnergies = computePitchClassEnergies(frame, buffer.sampleRate)
-    const { chord, confidence } = pickBestChord(pitchEnergies, minimumConfidence)
+    const windowed = applyHannWindow(frame)
+    const rms = computeRms(windowed)
+
+    if (rms < silenceThreshold) {
+      frames.push({
+        time: start / buffer.sampleRate,
+        chord: "Unclear",
+        confidence: 0,
+      })
+      frameIndex += 1
+      if (yieldEveryFrames > 0 && frameIndex % yieldEveryFrames === 0) {
+        await yieldToBrowser()
+      }
+      continue
+    }
+
+    const { energies, bassEnergies } = computePitchClassEnergies(
+      windowed,
+      buffer.sampleRate
+    )
+    const { chord, confidence } = pickBestChord(
+      energies,
+      bassEnergies,
+      minimumConfidence
+    )
 
     frames.push({
       time: start / buffer.sampleRate,
