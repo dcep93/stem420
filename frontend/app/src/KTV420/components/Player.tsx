@@ -110,7 +110,16 @@ export default function Player({ record, onClose }: PlayerProps) {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const buffersRef = useRef<Record<string, AudioBuffer>>({});
   const gainNodesRef = useRef<Record<string, GainNode>>({});
-  const wahNodesRef = useRef<Record<string, BiquadFilterNode>>({});
+  const wahNodesRef = useRef<
+    Record<
+      string,
+      {
+        filter: BiquadFilterNode;
+        wetGain: GainNode;
+        dryGain: GainNode;
+      }
+    >
+  >({});
   const analyserNodesRef = useRef<Record<string, AnalyserNode>>({});
   const sourcesRef = useRef<Record<string, AudioBufferSourceNode>>({});
   const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
@@ -303,9 +312,9 @@ export default function Player({ record, onClose }: PlayerProps) {
   const applyWahPosition = useCallback(
     (trackId: string, position?: number) => {
       const context = audioCtxRef.current ?? ensureAudioContext();
-      const filterNode = wahNodesRef.current[trackId];
+      const wahNodes = wahNodesRef.current[trackId];
 
-      if (!context || !filterNode) {
+      if (!context || !wahNodes) {
         return;
       }
 
@@ -314,22 +323,32 @@ export default function Player({ record, onClose }: PlayerProps) {
         Math.max(0, position ?? wahPositionsRef.current[trackId] ?? 0.5)
       );
       const offsetFromCenter = normalized - 0.5;
-      const minFrequency = 300;
-      const maxFrequency = 3200;
+      const wahAmount = Math.abs(offsetFromCenter) * 2;
+      const minFrequency = 250;
+      const maxFrequency = 2600;
       const frequency =
         minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
-      const wahAmount = Math.abs(offsetFromCenter) * 2;
-      const resonance = 0.7 + wahAmount * 8;
-      const gainDb = offsetFromCenter * 24;
+      const resonance = 3 + wahAmount * 9;
+      const wetMix = wahAmount;
+      const dryMix = 1 - wahAmount;
 
-      filterNode.type = "peaking";
-      filterNode.frequency.setTargetAtTime(
+      wahNodes.filter.type = "bandpass";
+      wahNodes.filter.frequency.setTargetAtTime(
         frequency,
         context.currentTime,
         0.01
       );
-      filterNode.Q.setTargetAtTime(resonance, context.currentTime, 0.01);
-      filterNode.gain.setTargetAtTime(gainDb, context.currentTime, 0.01);
+      wahNodes.filter.Q.setTargetAtTime(resonance, context.currentTime, 0.01);
+      wahNodes.wetGain.gain.setTargetAtTime(
+        wetMix,
+        context.currentTime,
+        0.01
+      );
+      wahNodes.dryGain.gain.setTargetAtTime(
+        dryMix,
+        context.currentTime,
+        0.01
+      );
     },
     [ensureAudioContext]
   );
@@ -420,9 +439,11 @@ export default function Player({ record, onClose }: PlayerProps) {
       }
     });
 
-    Object.entries(wahNodesRef.current).forEach(([id, filter]) => {
+    Object.entries(wahNodesRef.current).forEach(([id, wahNodes]) => {
       if (!activeIds.has(id)) {
-        filter.disconnect();
+        wahNodes.filter.disconnect();
+        wahNodes.wetGain.disconnect();
+        wahNodes.dryGain.disconnect();
         delete wahNodesRef.current[id];
       }
     });
@@ -458,18 +479,29 @@ export default function Player({ record, onClose }: PlayerProps) {
         buffersRef.current[track.id] = audioBuffer;
         const gain = context.createGain();
         const wahFilter = context.createBiquadFilter();
+        const wahWetGain = context.createGain();
+        const wahDryGain = context.createGain();
         const analyser = context.createAnalyser();
 
         analyser.fftSize = 2048;
-        wahFilter.type = "peaking";
-        wahFilter.Q.value = 0.8;
+        wahFilter.type = "bandpass";
+        wahFilter.Q.value = 3;
+        wahWetGain.gain.value = 0;
+        wahDryGain.gain.value = 1;
 
         gain.connect(wahFilter);
-        wahFilter.connect(analyser);
+        gain.connect(wahDryGain);
+        wahFilter.connect(wahWetGain);
+        wahWetGain.connect(analyser);
+        wahDryGain.connect(analyser);
         analyser.connect(context.destination);
 
         gainNodesRef.current[track.id] = gain;
-        wahNodesRef.current[track.id] = wahFilter;
+        wahNodesRef.current[track.id] = {
+          filter: wahFilter,
+          wetGain: wahWetGain,
+          dryGain: wahDryGain,
+        };
         analyserNodesRef.current[track.id] = analyser;
         gain.gain.setValueAtTime(
           getEffectiveVolumeFromRefs(track.id, volumesRef.current[track.id]),
