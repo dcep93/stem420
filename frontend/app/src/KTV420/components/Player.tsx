@@ -320,21 +320,37 @@ export default function Player({ record, onClose }: PlayerProps) {
         return;
       }
 
+      const LOUDNESS_BOTTOM = 0.5; // [0..1]
+      const LOUDNESS_TOP = 1.0; // [0..1]
+
       const normalized = Math.min(
         1,
         Math.max(0, position ?? wahPositionsRef.current[trackId] ?? 0.5)
       );
+
+      // Edge emphasis (near 0/1 only)
+      const bottomEdge = Math.pow(1 - normalized, 3.2);
+      const topEdge = Math.pow(normalized, 3.2);
+
+      // Map [0..1] knobs -> strong gain at the corresponding extreme
+      const bottomGain = 1 + bottomEdge * LOUDNESS_BOTTOM * 18;
+      const topGain = 1 + topEdge * LOUDNESS_TOP * 18;
+      const edgeGain = Math.max(bottomGain, topGain);
+
+      // Original wah shaping
       const offsetFromCenter = normalized - 0.5;
       const wahAmount = Math.abs(offsetFromCenter) * 2;
+
       const minFrequency = 250;
       const maxFrequency = 2600;
       const frequency =
         minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
+
       const resonance = 3 + wahAmount * 9;
+
       const crossfadeAngle = wahAmount * (Math.PI / 2);
-      const dryMix = Math.cos(crossfadeAngle);
+      const dryMix = Math.pow(Math.cos(crossfadeAngle), 3);
       const wetMix = Math.sin(crossfadeAngle);
-      const makeupGain = 1 + wahAmount * 3;
 
       wahNodes.filter.type = "bandpass";
       wahNodes.filter.frequency.setTargetAtTime(
@@ -343,8 +359,9 @@ export default function Player({ record, onClose }: PlayerProps) {
         0.01
       );
       wahNodes.filter.Q.setTargetAtTime(resonance, context.currentTime, 0.01);
+
       wahNodes.wetGain.gain.setTargetAtTime(
-        wetMix * makeupGain,
+        wetMix * edgeGain,
         context.currentTime,
         0.01
       );
@@ -984,10 +1001,21 @@ export default function Player({ record, onClose }: PlayerProps) {
   };
 
   const toggleTrackDeafen = (trackId: string) => {
-    setTrackDeafenStates((previous) => ({
-      ...previous,
-      [trackId]: !previous[trackId],
-    }));
+    setTrackDeafenStates((previous) => {
+      const nextValue = !previous[trackId];
+
+      if (nextValue) {
+        setTrackMuteStates((mutePrevious) => ({
+          ...mutePrevious,
+          [trackId]: false,
+        }));
+      }
+
+      return {
+        ...previous,
+        [trackId]: nextValue,
+      };
+    });
     applyEffectiveVolume(trackId);
   };
 
