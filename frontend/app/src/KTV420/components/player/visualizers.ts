@@ -1456,130 +1456,116 @@ export function drawVisualizer({
     context.globalCompositeOperation = "source-over";
     context.restore();
   } else if (visualizerType === "highway") {
-    const freqLength = analyser.frequencyBinCount;
-    const frequencyData = new Uint8Array(freqLength);
-    analyser.getByteFrequencyData(frequencyData);
-
-    const timeLength = analyser.fftSize;
-    const timeData = new Uint8Array(timeLength);
-    analyser.getByteTimeDomainData(timeData);
-
-    const horizon = height * 0.48;
-    const drift = ((timeData[0] ?? 128) - 128) / 128;
-    const vanishingX = width / 2 + drift * 12;
-    const roadBottom = width * 0.64;
-    const roadTop = width * 0.14;
-    const lanes = 4;
-
-    const energy =
-      freqLength > 0
-        ? frequencyData.reduce((sum, value) => sum + value, 0) / (freqLength * 255)
-        : 0;
-    const bass =
-      freqLength > 0
-        ? frequencyData
-            .slice(0, Math.max(1, Math.floor(freqLength / 10)))
-            .reduce((sum, value) => sum + value, 0) /
-          (Math.max(1, Math.floor(freqLength / 10)) * 255)
-        : 0;
-
-    const calmRandom = (seed: number) => {
-      const x = Math.sin(seed * 923.133 + currentTime * 0.05) * 43758.5453;
-      return x - Math.floor(x);
-    };
-
-    const sky = context.createLinearGradient(0, 0, 0, horizon);
-    sky.addColorStop(0, `hsl(${205 + energy * 25}, 55%, ${18 + energy * 16}%)`);
-    sky.addColorStop(1, `hsl(${240 + energy * 25}, 60%, ${10 + energy * 10}%)`);
-    context.fillStyle = sky;
+    const horizon = height * 0.52;
+    const skyGradient = context.createLinearGradient(0, 0, 0, horizon);
+    skyGradient.addColorStop(0, "#2f7dac");
+    skyGradient.addColorStop(1, "#1b5f8b");
+    context.fillStyle = skyGradient;
     context.fillRect(0, 0, width, horizon);
 
-    const starCount = 60;
-    for (let i = 0; i < starCount; i++) {
-      const twinkle = 0.08 + calmRandom(i * 5.1) * 0.2 + energy * 0.18;
-      const x = calmRandom(i * 3.7) * width;
-      const y = calmRandom(i * 7.3) * horizon * 0.9;
-      context.fillStyle = `rgba(255, 255, 255, ${0.04 + twinkle * 0.3})`;
-      context.fillRect(x, y, 1.2 + twinkle * 2, 1.2 + twinkle * 2);
-    }
-
-    const sunRadius = 22 + energy * 18;
-    const sun = context.createRadialGradient(vanishingX, horizon, 0, vanishingX, horizon, sunRadius);
-    sun.addColorStop(0, `hsla(${35 + bass * 60}, 90%, 62%, 0.75)`);
-    sun.addColorStop(1, "rgba(255, 200, 150, 0)");
-    context.fillStyle = sun;
+    const sunCenterX = width * 0.5;
+    const sunCenterY = horizon + height * 0.02;
+    const sunRadius = Math.min(width, height) * 0.7;
+    const sunBands = ["#f4c255", "#e79a38", "#d46d2b", "#c95a24"];
+    context.fillStyle = "#f4c255";
     context.beginPath();
-    context.arc(vanishingX, horizon, sunRadius, 0, Math.PI * 2);
-    context.fill();
-
-    const mist = context.createLinearGradient(0, horizon * 0.7, 0, horizon + 40);
-    mist.addColorStop(0, "rgba(180, 210, 255, 0.05)");
-    mist.addColorStop(1, "rgba(70, 90, 130, 0.25)");
-    context.fillStyle = mist;
-    context.fillRect(0, 0, width, horizon + 40);
-
-    context.fillStyle = "#05060e";
-    context.fillRect(0, horizon, width, height - horizon);
-
-    context.beginPath();
-    context.moveTo(vanishingX - roadBottom, height);
-    context.lineTo(vanishingX + roadBottom, height);
-    context.lineTo(vanishingX + roadTop, horizon);
-    context.lineTo(vanishingX - roadTop, horizon);
+    context.arc(sunCenterX, sunCenterY, sunRadius * 0.64, Math.PI * 1.08, Math.PI * 1.92);
+    context.lineTo(sunCenterX + sunRadius * 0.64, sunCenterY);
     context.closePath();
-    const asphalt = context.createLinearGradient(0, horizon, 0, height);
-    asphalt.addColorStop(0, "#0a0c16");
-    asphalt.addColorStop(1, "#04050a");
-    context.fillStyle = asphalt;
+    context.fill();
+    sunBands.forEach((color, index) => {
+      const radius = sunRadius - index * sunRadius * 0.15;
+      context.beginPath();
+      context.strokeStyle = color;
+      context.lineWidth = Math.max(28, sunRadius * 0.11);
+      context.lineCap = "round";
+      context.arc(sunCenterX, sunCenterY, radius, Math.PI * 1.06, Math.PI * 1.94);
+      context.stroke();
+    });
+
+    const drawCloud = (x: number, y: number, scale: number, tint: string) => {
+      context.fillStyle = tint;
+      context.beginPath();
+      context.ellipse(x, y, 70 * scale, 40 * scale, 0, 0, Math.PI * 2);
+      context.ellipse(x - 55 * scale, y + 6 * scale, 45 * scale, 28 * scale, 0, 0, Math.PI * 2);
+      context.ellipse(x + 55 * scale, y + 4 * scale, 50 * scale, 32 * scale, 0, 0, Math.PI * 2);
+      context.ellipse(x - 8 * scale, y - 28 * scale, 60 * scale, 38 * scale, 0, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = "rgba(20, 20, 20, 0.16)";
+      context.lineWidth = 2;
+      context.stroke();
+    };
+    drawCloud(width * 0.18, height * 0.24, 0.4, "#f7f3ea");
+    drawCloud(width * 0.28, height * 0.34, 0.32, "#f2eee5");
+    drawCloud(width * 0.82, height * 0.26, 0.46, "#f7f1e7");
+
+    const horizonBandHeight = height * 0.04;
+    context.fillStyle = "#e1b93f";
+    context.fillRect(0, horizon - horizonBandHeight, width, horizonBandHeight);
+
+    const fieldBands = ["#e8c56f", "#e0bc64", "#3b8b3d", "#e2c06a", "#d8b75f", "#e8c56f"];
+    const fieldTop = horizon;
+    const fieldHeight = height - fieldTop;
+    const bandHeight = fieldHeight / fieldBands.length;
+    fieldBands.forEach((color, index) => {
+      context.fillStyle = color;
+      context.fillRect(0, fieldTop + index * bandHeight, width, bandHeight);
+    });
+
+    const roadBottom = width * 0.64;
+    const roadTop = width * 0.12;
+    context.fillStyle = "#1b1b1c";
+    context.beginPath();
+    context.moveTo(width / 2 - roadBottom, height);
+    context.lineTo(width / 2 + roadBottom, height);
+    context.lineTo(width / 2 + roadTop, horizon - horizonBandHeight * 0.2);
+    context.lineTo(width / 2 - roadTop, horizon - horizonBandHeight * 0.2);
+    context.closePath();
     context.fill();
 
-    const edgeGlow = context.createLinearGradient(0, horizon, 0, height);
-    edgeGlow.addColorStop(0, `rgba(140, 200, 255, ${0.16 + energy * 0.12})`);
-    edgeGlow.addColorStop(1, "rgba(140, 200, 255, 0)");
-    context.strokeStyle = edgeGlow;
-    context.lineWidth = 3.4;
-    for (let side = -1; side <= 1; side += 2) {
+    context.strokeStyle = "#f4f4f4";
+    context.lineWidth = 6;
+    context.beginPath();
+    context.moveTo(width / 2 - roadTop, horizon - horizonBandHeight * 0.2);
+    context.lineTo(width / 2 - roadBottom, height);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(width / 2 + roadTop, horizon - horizonBandHeight * 0.2);
+    context.lineTo(width / 2 + roadBottom, height);
+    context.stroke();
+
+    const dashCount = 12;
+    let dashY = horizon - horizonBandHeight * 0.05;
+    for (let i = 0; i < dashCount; i++) {
+      const t = i / dashCount;
+      const dashHeight = 10 + t * 18;
+      const dashWidth = 6 + t * 10;
+      const gap = 8 + t * 22;
+      context.fillStyle = "#f4f4f4";
+      context.fillRect(width / 2 - dashWidth / 2, dashY, dashWidth, dashHeight);
+      dashY += dashHeight + gap;
+      if (dashY > height) {
+        break;
+      }
+    }
+
+    const stripeColors = ["#e6c46b", "#d9b75f", "#cfae56", "#b3a056"];
+    const stripeCount = 10;
+    for (let i = 0; i < stripeCount; i++) {
+      const t = i / (stripeCount - 1);
+      const stripeY = horizon + t * fieldHeight;
+      const stripeWidth = roadTop + (roadBottom - roadTop) * t;
+      const stripePadding = 16 + t * 28;
+      context.strokeStyle = stripeColors[i % stripeColors.length] ?? "#e88f3b";
+      context.lineWidth = 6;
       context.beginPath();
-      context.moveTo(vanishingX + side * roadTop, horizon);
-      context.lineTo(vanishingX + side * roadBottom, height);
+      context.moveTo(width / 2 - stripeWidth - stripePadding, stripeY);
+      context.lineTo(width / 2 - roadBottom - stripePadding, height);
       context.stroke();
-    }
-
-    const laneLines = 10;
-    const speed = 140 * (0.55 + energy * 1.2);
-    for (let i = 0; i < laneLines; i++) {
-      const depth = ((i * 150 + currentTime * speed) % (height - horizon)) / (height - horizon);
-      const y = horizon + depth * (height - horizon);
-      const rowWidth = roadTop + (roadBottom - roadTop) * depth;
-      const dashHeight = 12 + depth * 28 + bass * 10;
-      const dashWidth = 6 + depth * 6;
-      const fade = 0.24 + (1 - depth) * 0.55;
-      for (let lane = 1; lane < lanes; lane++) {
-        const t = lane / lanes;
-        const x = vanishingX - rowWidth + t * rowWidth * 2;
-        context.fillStyle = `rgba(230, 242, 255, ${fade})`;
-        context.fillRect(x - dashWidth / 2, y, dashWidth, dashHeight);
-      }
-    }
-
-    const guardRailPulse = 0.4 + bass * 0.8;
-    context.strokeStyle = `rgba(120, 210, 255, ${0.2 + bass * 0.25})`;
-    context.lineWidth = 2.2;
-    for (let post = 0; post < 16; post++) {
-      const depth = (post / 16) * 1.05;
-      const y = horizon + depth * (height - horizon);
-      const rowWidth = roadTop + (roadBottom - roadTop) * depth;
-      for (let side = -1; side <= 1; side += 2) {
-        const x = vanishingX + side * rowWidth;
-        context.beginPath();
-        context.moveTo(x, y);
-        context.lineTo(x + side * 6, y + 16 + bass * 10);
-        context.stroke();
-        context.beginPath();
-        context.moveTo(x, y + 4);
-        context.lineTo(x + side * (10 + guardRailPulse * 8), y + 6);
-        context.stroke();
-      }
+      context.beginPath();
+      context.moveTo(width / 2 + stripeWidth + stripePadding, stripeY);
+      context.lineTo(width / 2 + roadBottom + stripePadding, height);
+      context.stroke();
     }
   } else if (visualizerType === "delay-pedal") {
     const bufferLength = analyser.fftSize;
