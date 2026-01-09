@@ -15,8 +15,7 @@ export type AudioEffectType =
   | "tilt-eq"
   | "band-emphasis"
   | "saturation"
-  | "formant-filter"
-  | "pitch-shift";
+  | "formant-filter";
 
 export type AudioEffectOption = {
   value: AudioEffectType;
@@ -127,12 +126,6 @@ export const audioEffectOptions: AudioEffectOption[] = [
     description:
       "Vowel-like resonances shape the tone into a vocalized texture. The intensity shifts the formant focus, adding character and a talking quality to synths or guitars.",
   },
-  {
-    value: "pitch-shift",
-    label: "Pitch Shift",
-    description:
-      "Shifts pitch from low to high while preserving tempo. Move left for a deeper drop, or push right for brighter, lifted harmonics.",
-  },
 ];
 
 const clamp = (value: number, min: number, max: number) =>
@@ -148,7 +141,6 @@ const BIPOLAR_EFFECTS = new Set<AudioEffectType>([
   "lofi",
   "tilt-eq",
   "band-emphasis",
-  "pitch-shift",
 ]);
 
 export const getDefaultEffectValue = (effect: AudioEffectType) =>
@@ -192,7 +184,6 @@ export type EffectNodes = {
   feedbackGain: GainNode;
   shaper: WaveShaperNode;
   convolver: ConvolverNode;
-  pitchShifter: AudioWorkletNode;
   lfo: OscillatorNode;
   delayLfoGain: GainNode;
   filterLfoGain: GainNode;
@@ -203,15 +194,6 @@ type EffectParams = {
   nodes: EffectNodes;
   effect: AudioEffectType;
   value: number;
-};
-
-export const PITCH_SHIFT_MAX_SEMITONES = 12;
-
-export const getPitchShiftPlaybackRate = (value: number) => {
-  const normalized = clamp(value, 0, 1);
-  const centered = normalized - 0.5;
-  const semitones = centered * 2 * PITCH_SHIFT_MAX_SEMITONES;
-  return Math.pow(2, semitones / 12);
 };
 
 const createSaturationCurve = (amount: number) => {
@@ -264,42 +246,13 @@ const createReverbImpulse = (
   return impulse;
 };
 
-const pitchShifterWorkletModules = new WeakMap<AudioContext, Promise<void>>();
-const pitchShifterModuleUrl = new URL(
-  "./pitchShifterProcessor.ts",
-  import.meta.url
-);
-
-export const ensurePitchShifterWorklet = (context: AudioContext) => {
-  if (!context.audioWorklet) {
-    return Promise.resolve();
-  }
-
-  const existing = pitchShifterWorkletModules.get(context);
-  if (existing) {
-    return existing;
-  }
-
-  const promise = context.audioWorklet.addModule(pitchShifterModuleUrl);
-  pitchShifterWorkletModules.set(context, promise);
-  return promise;
-};
-
-const setWetRouting = (
-  nodes: EffectNodes,
-  useConvolver: boolean,
-  usePitchShifter: boolean
-) => {
+const setWetRouting = (nodes: EffectNodes, useConvolver: boolean) => {
   nodes.shaper.disconnect();
   nodes.convolver.disconnect();
-  nodes.pitchShifter.disconnect();
 
   if (useConvolver) {
     nodes.shaper.connect(nodes.convolver);
     nodes.convolver.connect(nodes.wetGain);
-  } else if (usePitchShifter) {
-    nodes.shaper.connect(nodes.pitchShifter);
-    nodes.pitchShifter.connect(nodes.wetGain);
   } else {
     nodes.shaper.connect(nodes.wetGain);
   }
@@ -336,11 +289,6 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   const feedbackGain = context.createGain();
   const shaper = context.createWaveShaper();
   const convolver = context.createConvolver();
-  const pitchShifter = new AudioWorkletNode(context, "pitch-shifter", {
-    numberOfInputs: 1,
-    numberOfOutputs: 1,
-    outputChannelCount: [2],
-  });
   const lfo = context.createOscillator();
   const delayLfoGain = context.createGain();
   const filterLfoGain = context.createGain();
@@ -389,7 +337,6 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
       feedbackGain,
       shaper,
       convolver,
-      pitchShifter,
       lfo,
       delayLfoGain,
       filterLfoGain,
@@ -407,15 +354,12 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
     feedbackGain,
     shaper,
     convolver,
-    pitchShifter,
     lfo,
     delayLfoGain,
     filterLfoGain,
   };
 };
 
-// How to verify: audition a steady tone plus a drum loop for chorus/phaser motion,
-// then confirm pitch shift keeps the same end-time alignment as the dry track.
 export const applyAudioEffect = ({
   context,
   nodes,
@@ -441,11 +385,8 @@ export const applyAudioEffect = ({
     nodes.shaper.curve = createSaturationCurve(0);
     nodes.convolver.buffer = createNeutralImpulse(context);
     nodes.phaserFeedbackGain.gain.setTargetAtTime(0, now, 0.01);
-    nodes.pitchShifter.parameters
-      .get("pitchRatio")
-      ?.setTargetAtTime(1, now, 0.01);
     connectBaseRouting(nodes, false);
-    setWetRouting(nodes, false, false);
+    setWetRouting(nodes, false);
   };
 
   switch (effect) {
@@ -610,7 +551,7 @@ export const applyAudioEffect = ({
     }
     case "reverb": {
       resetModulation();
-      setWetRouting(nodes, true, false);
+      setWetRouting(nodes, true);
       const duration = 0.4 + intensity * 3.2;
       const decay = 2 + intensity * 5;
       nodes.filter.type = "lowpass";
@@ -724,20 +665,6 @@ export const applyAudioEffect = ({
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
       const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
       setMix(wetMix, dryMix);
-      break;
-    }
-    case "pitch-shift": {
-      resetModulation();
-      const pitchRatio = getPitchShiftPlaybackRate(value);
-      nodes.pitchShifter.parameters
-        .get("pitchRatio")
-        ?.setTargetAtTime(pitchRatio, now, 0.01);
-      setWetRouting(nodes, false, true);
-      nodes.filter.type = "allpass";
-      nodes.filter.frequency.setTargetAtTime(1000, now, 0.01);
-      nodes.filter.Q.setTargetAtTime(0.5, now, 0.01);
-      nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(1, 0);
       break;
     }
     default: {

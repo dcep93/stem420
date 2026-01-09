@@ -18,7 +18,6 @@ import {
   audioEffectOptions,
   type AudioEffectType,
   createEffectNodes,
-  ensurePitchShifterWorklet,
   type EffectNodes,
   getDefaultEffectValue,
 } from "./player/audioEffects";
@@ -454,7 +453,6 @@ export default function Player({ record, onClose }: PlayerProps) {
         effectNodes.feedbackGain.disconnect();
         effectNodes.shaper.disconnect();
         effectNodes.convolver.disconnect();
-        effectNodes.pitchShifter.disconnect();
         effectNodes.delayLfoGain.disconnect();
         effectNodes.filterLfoGain.disconnect();
         try {
@@ -497,7 +495,6 @@ export default function Player({ record, onClose }: PlayerProps) {
         }
 
         buffersRef.current[track.id] = audioBuffer;
-        await ensurePitchShifterWorklet(context);
         const gain = context.createGain();
         const effectNodes = createEffectNodes(context);
         const analyser = context.createAnalyser();
