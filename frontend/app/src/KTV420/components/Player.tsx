@@ -21,9 +21,9 @@ import {
   applyAudioEffect,
   audioEffectOptions,
   createEffectNodes,
+  getDefaultEffectValue,
   type EffectNodes,
   type AudioEffectType,
-  DEFAULT_EFFECT_VALUE,
 } from "./player/audioEffects";
 import { TrackRow } from "./player/TrackRow";
 import {
@@ -331,10 +331,12 @@ export default function Player({ record, onClose }: PlayerProps) {
         return;
       }
 
-      const effectValue =
-        value ?? effectValuesRef.current[trackId] ?? DEFAULT_EFFECT_VALUE;
       const effectType =
         effectOverride ?? effectTypesRef.current[trackId] ?? "wah";
+      const effectValue =
+        value ??
+        effectValuesRef.current[trackId] ??
+        getDefaultEffectValue(effectType);
 
       applyAudioEffect({
         context,
@@ -410,7 +412,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       initialVolumes[track.id] = 1;
       initialMuteStates[track.id] = track.isInput;
       initialDeafenStates[track.id] = false;
-      initialEffectValues[track.id] = DEFAULT_EFFECT_VALUE;
+      initialEffectValues[track.id] = getDefaultEffectValue("wah");
       initialEffectTypes[track.id] = "wah";
     }
 
@@ -533,7 +535,8 @@ export default function Player({ record, onClose }: PlayerProps) {
         const startingEffect =
           effectTypesRef.current[track.id] ?? ("wah" as AudioEffectType);
         const startingValue =
-          effectValuesRef.current[track.id] ?? DEFAULT_EFFECT_VALUE;
+          effectValuesRef.current[track.id] ??
+          getDefaultEffectValue(startingEffect);
 
         applyEffectValue(track.id, startingValue, startingEffect);
 
@@ -543,7 +546,7 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         setEffectValues((previous) => ({
           ...previous,
-          [track.id]: previous[track.id] ?? DEFAULT_EFFECT_VALUE,
+          [track.id]: previous[track.id] ?? getDefaultEffectValue(startingEffect),
         }));
         setEffectTypes((previous) => ({
           ...previous,
@@ -1054,8 +1057,11 @@ export default function Player({ record, onClose }: PlayerProps) {
     trackId: string,
     effectType: AudioEffectType
   ) => {
+    const defaultValue = getDefaultEffectValue(effectType);
+    effectValuesRef.current[trackId] = defaultValue;
+    setEffectValues((previous) => ({ ...previous, [trackId]: defaultValue }));
     setEffectTypes((previous) => ({ ...previous, [trackId]: effectType }));
-    applyEffectValue(trackId, effectValuesRef.current[trackId], effectType);
+    applyEffectValue(trackId, defaultValue, effectType);
     applyPlaybackRateForTrack(
       trackId,
       effectType,
@@ -1064,15 +1070,19 @@ export default function Player({ record, onClose }: PlayerProps) {
   };
 
   const handleEffectReset = (trackId: string) => {
+    const defaultValue = getDefaultEffectValue(
+      effectTypesRef.current[trackId] ?? "wah"
+    );
+    effectValuesRef.current[trackId] = defaultValue;
     setEffectValues((previous) => ({
       ...previous,
-      [trackId]: DEFAULT_EFFECT_VALUE,
+      [trackId]: defaultValue,
     }));
-    applyEffectValue(trackId, DEFAULT_EFFECT_VALUE);
+    applyEffectValue(trackId, defaultValue);
     applyPlaybackRateForTrack(
       trackId,
       effectTypesRef.current[trackId] ?? "wah",
-      DEFAULT_EFFECT_VALUE
+      effectValuesRef.current[trackId]
     );
   };
 
@@ -1249,7 +1259,10 @@ export default function Player({ record, onClose }: PlayerProps) {
             isMuted={!!trackMuteStates[track.id]}
             isDeafened={!!trackDeafenStates[track.id]}
             effectType={effectTypes[track.id] ?? "wah"}
-            effectValue={effectValues[track.id] ?? DEFAULT_EFFECT_VALUE}
+            effectValue={
+              effectValues[track.id] ??
+              getDefaultEffectValue(effectTypes[track.id] ?? "wah")
+            }
             effectOptions={audioEffectOptions}
             onVolumeChange={handleVolumeChange}
             onEffectValueChange={handleEffectValueChange}
