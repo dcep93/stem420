@@ -131,9 +131,6 @@ export const audioEffectOptions: AudioEffectOption[] = [
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
-const smoothAbs = (value: number, epsilon = 1e-4) =>
-  Math.sqrt(value * value + epsilon);
-
 const BIPOLAR_EFFECTS = new Set<AudioEffectType>([
   "wah",
   "bass-boost",
@@ -398,7 +395,8 @@ export const applyAudioEffect = ({
 
       const edgePosition = clamp(Math.abs(centered) / 0.5, 0, 1);
       const edgeAmount = 0.35 + 0.65 * Math.sin(edgePosition * Math.PI);
-      const edgeDb = edgeAmount * (LOUDNESS_BOTTOM + LOUDNESS_TOP) * MAX_EDGE_DB;
+      const edgeDb =
+        edgeAmount * (LOUDNESS_BOTTOM + LOUDNESS_TOP) * MAX_EDGE_DB;
       const edgeGain = Math.pow(10, edgeDb / 20);
 
       const wahAmount = intensity;
