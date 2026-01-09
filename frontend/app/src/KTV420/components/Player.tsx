@@ -513,6 +513,7 @@ export default function Player({ record, onClose }: PlayerProps) {
   useEffect(() => {
     let isCancelled = false;
     const context = ensureAudioContext();
+    const activeTrackIds = new Set(tracks.map((track) => track.id));
 
     const analyzeTrack = async (track: Track) => {
       try {
@@ -520,7 +521,7 @@ export default function Player({ record, onClose }: PlayerProps) {
           (await track.blob.arrayBuffer()).slice(0)
         );
 
-        if (isCancelled) {
+        if (isCancelled || !activeTrackIds.has(track.id)) {
           return;
         }
 
@@ -551,6 +552,11 @@ export default function Player({ record, onClose }: PlayerProps) {
           effectValuesRef.current[track.id] ?? DEFAULT_EFFECT_VALUE;
 
         applyEffectValue(track.id, startingValue, startingEffect);
+
+        if (isCancelled || !activeTrackIds.has(track.id)) {
+          return;
+        }
+
         setEffectValues((previous) => ({
           ...previous,
           [track.id]: previous[track.id] ?? DEFAULT_EFFECT_VALUE,
@@ -559,6 +565,10 @@ export default function Player({ record, onClose }: PlayerProps) {
           ...previous,
           [track.id]: previous[track.id] ?? startingEffect,
         }));
+
+        if (isCancelled || !activeTrackIds.has(track.id)) {
+          return;
+        }
 
         setDuration((previous) => {
           const maxDuration = Math.max(previous, audioBuffer.duration);
@@ -590,7 +600,7 @@ export default function Player({ record, onClose }: PlayerProps) {
           envelope.push(rms);
         }
 
-        if (isCancelled) {
+        if (isCancelled || !activeTrackIds.has(track.id)) {
           return;
         }
 
@@ -697,13 +707,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     };
 
     void (async () => {
-      for (const track of tracks) {
-        if (isCancelled) {
-          return;
-        }
-
-        await analyzeTrack(track);
-      }
+      await Promise.all(tracks.map((track) => analyzeTrack(track)));
     })();
 
     return () => {
