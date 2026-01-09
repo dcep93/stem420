@@ -41,6 +41,10 @@ export function TrackRow({
   const label = track.isInput
     ? `Input: ${track.name}`
     : `Output: ${track.name}`;
+  const selectedEffect = effectOptions.find(
+    (option) => option.value === effectType
+  );
+  const effectDescription = selectedEffect?.description ?? "";
 
   const controlButtonStyle = (isActive: boolean): CSSProperties => ({
     borderRadius: "999px",
@@ -105,7 +109,12 @@ export function TrackRow({
           <label
             style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
           >
-            <span style={{ color: "#cbd5e1", fontWeight: 600 }}>Effect</span>
+            <span
+              title={effectDescription}
+              style={{ color: "#cbd5e1", fontWeight: 600 }}
+            >
+              Effect
+            </span>
             <select
               value={effectType}
               onChange={(event) =>

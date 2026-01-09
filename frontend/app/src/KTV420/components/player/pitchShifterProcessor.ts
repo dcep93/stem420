@@ -75,7 +75,7 @@ class PitchShifterProcessor extends AudioWorkletProcessor {
       this.olaR[olaIndex]! += sampleR * windowValue;
     }
 
-    this.readIndex = baseIndex + this.hopSize * clampedRatio;
+    this.readIndex = baseIndex + this.hopSize;
     if (this.readIndex >= this.inputBufferSize) {
       this.readIndex -= this.inputBufferSize;
     }

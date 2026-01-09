@@ -453,11 +453,11 @@ export const applyAudioEffect = ({
       resetModulation();
       const LOUDNESS_BOTTOM = 0.5; // [0..1]
       const LOUDNESS_TOP = 0.7; // [0..1]
-      const MAX_EDGE_DB = 36;
+      const MAX_EDGE_DB = 24;
 
-      const edgeAmount = Math.pow(smoothAbs(direction), 3.5);
-      const edgeDb =
-        edgeAmount * (LOUDNESS_BOTTOM + LOUDNESS_TOP) * MAX_EDGE_DB;
+      const edgePosition = clamp(Math.abs(centered) / 0.5, 0, 1);
+      const edgeAmount = 0.35 + 0.65 * Math.sin(edgePosition * Math.PI);
+      const edgeDb = edgeAmount * (LOUDNESS_BOTTOM + LOUDNESS_TOP) * MAX_EDGE_DB;
       const edgeGain = Math.pow(10, edgeDb / 20);
 
       const wahAmount = intensity;
