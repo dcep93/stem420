@@ -6,6 +6,9 @@ import {
 } from "./types";
 
 const cachedPerformanceMode = true;
+const HALF_PI = Math.PI / 2;
+const TWO_PI = Math.PI * 2;
+const KALEIDOSCOPE_EASE = 0.01;
 const highwayStateMap = new WeakMap<
   HTMLCanvasElement,
   {
@@ -20,10 +23,27 @@ const highwayStateMap = new WeakMap<
     >;
   }
 >();
-const kaleidoscopeStateMap = new WeakMap<
-  HTMLCanvasElement,
-  { width: number; height: number; scale: number; image: HTMLCanvasElement }
->();
+type KaleidoscopeState = {
+  width: number;
+  height: number;
+  radius: number;
+  slices: number;
+  zoom: number;
+  offsetRotation: number;
+  offsetScale: number;
+  offsetX: number;
+  offsetY: number;
+  targetX: number;
+  targetY: number;
+  rotationTarget: number;
+  rotationSpeed: number;
+  lastTime: number;
+  image: HTMLImageElement;
+  pattern: CanvasPattern | null;
+  onMouseMove?: (event: MouseEvent) => void;
+};
+
+const kaleidoscopeStateMap = new WeakMap<HTMLCanvasElement, KaleidoscopeState>();
 
 function isLowPowerMode(): boolean {
   return cachedPerformanceMode;
@@ -1437,210 +1457,108 @@ export function drawVisualizer({
     context.globalCompositeOperation = "source-over";
     context.restore();
   } else if (visualizerType === "kaleidoscope") {
-    const cached = kaleidoscopeStateMap.get(canvas);
-    const renderScale = performanceMode ? 0.35 : 0.5;
-    if (
-      !cached ||
-      cached.width !== width ||
-      cached.height !== height ||
-      cached.scale !== renderScale
-    ) {
-      const offscreen = document.createElement("canvas");
-      offscreen.width = Math.max(1, Math.floor(width * renderScale));
-      offscreen.height = Math.max(1, Math.floor(height * renderScale));
-      const offscreenContext = offscreen.getContext("2d");
+    let cached = kaleidoscopeStateMap.get(canvas);
 
-      if (offscreenContext) {
-        const renderWidth = offscreen.width;
-        const renderHeight = offscreen.height;
-        const centerX = renderWidth / 2;
-        const centerY = renderHeight / 2;
-        const maxRadius =
-          Math.hypot(renderWidth, renderHeight) * 0.5;
-        let seed =
-          Math.floor(renderWidth * 13.17 + renderHeight * 7.31) ^
-          Math.floor(Math.random() * 100000);
-        const random = () => {
-          seed = (seed * 1664525 + 1013904223) % 4294967296;
-          return seed / 4294967296;
-        };
-        const palette = [
-          20, 35, 55, 120, 150, 170, 190, 210, 235, 260, 285, 315, 340, 355,
-        ];
-
-        const background = offscreenContext.createRadialGradient(
-          centerX,
-          centerY,
-          0,
-          centerX,
-          centerY,
-          maxRadius * 1.6
-        );
-        background.addColorStop(0, "hsl(290, 80%, 20%)");
-        background.addColorStop(0.35, "hsl(255, 78%, 18%)");
-        background.addColorStop(0.7, "hsl(220, 70%, 14%)");
-        background.addColorStop(1, "hsl(215, 90%, 6%)");
-        offscreenContext.fillStyle = background;
-        offscreenContext.fillRect(0, 0, renderWidth, renderHeight);
-
-        const textureSize = performanceMode ? 360 : 480;
-        const textureCanvas = document.createElement("canvas");
-        textureCanvas.width = textureSize;
-        textureCanvas.height = textureSize;
-        const textureContext = textureCanvas.getContext("2d");
-
-        if (textureContext) {
-          textureContext.fillStyle = "hsl(265, 75%, 16%)";
-          textureContext.fillRect(0, 0, textureSize, textureSize);
-          const bloomCount = performanceMode ? 5 : 8;
-          for (let i = 0; i < bloomCount; i++) {
-            const hue =
-              palette[Math.floor(random() * palette.length)] ?? 220;
-            const radius = textureSize * (0.18 + random() * 0.38);
-            const x = random() * textureSize;
-            const y = random() * textureSize;
-            const bloom = textureContext.createRadialGradient(
-              x,
-              y,
-              0,
-              x,
-              y,
-              radius
-            );
-            bloom.addColorStop(0, `hsla(${hue}, 90%, 62%, 0.55)`);
-            bloom.addColorStop(0.55, `hsla(${(hue + 45) % 360}, 85%, 55%, 0.3)`);
-            bloom.addColorStop(1, "rgba(0,0,0,0)");
-            textureContext.fillStyle = bloom;
-            textureContext.beginPath();
-            textureContext.arc(x, y, radius, 0, Math.PI * 2);
-            textureContext.fill();
-          }
-
-          textureContext.globalCompositeOperation = "screen";
-          const strokeCount = performanceMode ? 90 : 140;
-          for (let i = 0; i < strokeCount; i++) {
-            const hue =
-              palette[Math.floor(random() * palette.length)] ?? 220;
-            const x = random() * textureSize;
-            const y = random() * textureSize;
-            const length = textureSize * (0.1 + random() * 0.25);
-            const angle = random() * Math.PI * 2;
-            textureContext.strokeStyle = `hsla(${hue}, 95%, 65%, 0.35)`;
-            textureContext.lineWidth = 1 + random() * 1.6;
-            textureContext.beginPath();
-            textureContext.moveTo(x, y);
-            textureContext.lineTo(
-              x + Math.cos(angle) * length,
-              y + Math.sin(angle) * length
-            );
-            textureContext.stroke();
-          }
-          textureContext.globalCompositeOperation = "source-over";
-
-          const dotCount = performanceMode ? 260 : 420;
-          for (let i = 0; i < dotCount; i++) {
-            const hue =
-              palette[Math.floor(random() * palette.length)] ?? 220;
-            const radius = 0.8 + random() * 2.6;
-            textureContext.fillStyle = `hsla(${hue}, 95%, 70%, ${
-              0.15 + random() * 0.4
-            })`;
-            textureContext.beginPath();
-            textureContext.arc(
-              random() * textureSize,
-              random() * textureSize,
-              radius,
-              0,
-              Math.PI * 2
-            );
-            textureContext.fill();
-          }
-
-          const rings = performanceMode ? 6 : 9;
-          for (let ring = 0; ring < rings; ring++) {
-            const ringRadius = textureSize * (0.15 + ring * 0.08);
-            textureContext.strokeStyle = `hsla(${260 + ring * 10}, 80%, 55%, ${
-              0.08 + ring * 0.03
-            })`;
-            textureContext.lineWidth = 1;
-            textureContext.beginPath();
-            textureContext.arc(
-              textureSize / 2,
-              textureSize / 2,
-              ringRadius,
-              0,
-              Math.PI * 2
-            );
-            textureContext.stroke();
-          }
-        }
-
-        const pattern = textureContext
-          ? offscreenContext.createPattern(textureCanvas, "repeat")
-          : null;
-        if (pattern) {
-          const slices = performanceMode ? 18 : 24;
-          const step = (Math.PI * 2) / slices;
-          const scale =
-            (performanceMode ? 1.25 : 1.45) *
-            (maxRadius / Math.min(textureSize, textureSize));
-          const offsetX = (random() - 0.5) * textureSize * 0.6;
-          const offsetY = (random() - 0.5) * textureSize * 0.6;
-
-          offscreenContext.fillStyle = pattern;
-          for (let slice = 0; slice <= slices; slice++) {
-            offscreenContext.save();
-            offscreenContext.translate(centerX, centerY);
-            offscreenContext.rotate(slice * step);
-            offscreenContext.beginPath();
-            offscreenContext.moveTo(-0.5, -0.5);
-            offscreenContext.arc(0, 0, maxRadius, step * -0.51, step * 0.51);
-            offscreenContext.rotate(Math.PI / 2);
-            offscreenContext.scale(scale, scale);
-            offscreenContext.scale(slice % 2 === 0 ? 1 : -1, 1);
-            offscreenContext.translate(offsetX, offsetY);
-            offscreenContext.fill();
-            offscreenContext.restore();
-          }
-        }
-
-        offscreenContext.globalCompositeOperation = "screen";
-        offscreenContext.save();
-        offscreenContext.translate(centerX, centerY);
-        const haloCount = performanceMode ? 5 : 7;
-        for (let ring = 0; ring < haloCount; ring++) {
-          const progress = ring / haloCount;
-          const hue = 260 + progress * 120;
-          offscreenContext.beginPath();
-          offscreenContext.arc(
-            0,
-            0,
-            maxRadius * (0.2 + progress * 0.8),
-            0,
-            Math.PI * 2
-          );
-          offscreenContext.strokeStyle = `hsla(${hue}, 95%, ${
-            55 + progress * 20
-          }%, ${0.12 + progress * 0.2})`;
-          offscreenContext.lineWidth = 1.2 + progress * 0.8;
-          offscreenContext.stroke();
-        }
-        offscreenContext.restore();
-        offscreenContext.globalCompositeOperation = "source-over";
+    if (!cached || cached.width !== width || cached.height !== height) {
+      if (cached?.onMouseMove) {
+        window.removeEventListener("mousemove", cached.onMouseMove, false);
       }
+      const radius = 1100;
+      const slices = 24;
+      const zoom = 1.5;
 
-      kaleidoscopeStateMap.set(canvas, {
+      const image = new Image();
+      image.crossOrigin = "Anonymous";
+      image.src =
+        "https://images.unsplash.com/photo-1473951574080-01fe45ec8643?q=80&w=2104&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+
+      const state: KaleidoscopeState = {
         width,
         height,
-        scale: renderScale,
-        image: offscreen,
-      });
+        radius,
+        slices,
+        zoom,
+        offsetRotation: 0,
+        offsetScale: 0.8,
+        offsetX: 0,
+        offsetY: 0,
+        targetX: 0,
+        targetY: 0,
+        rotationTarget: 0,
+        rotationSpeed: 0.002,
+        lastTime: currentTime,
+        image,
+        pattern: null,
+      };
+
+      const handleMouseMove = (event: MouseEvent) => {
+        const dx = event.pageX / Math.max(1, width);
+        const dy = event.pageY / Math.max(1, height);
+        const hx = dx - 0.1;
+        const hy = dy - 0.1;
+        state.targetX = hx * state.radius * -0.8;
+        state.targetY = hy * state.radius * 0.8;
+      };
+
+      state.onMouseMove = handleMouseMove;
+      window.addEventListener("mousemove", handleMouseMove, false);
+
+      image.onload = () => {
+        state.pattern = context.createPattern(image, "repeat");
+      };
+
+      kaleidoscopeStateMap.set(canvas, state);
+      cached = state;
     }
 
-    const cachedImage = kaleidoscopeStateMap.get(canvas);
-    if (cachedImage) {
-      context.imageSmoothingEnabled = true;
-      context.drawImage(cachedImage.image, 0, 0, width, height);
+    if (cached) {
+      if (
+        !cached.pattern ||
+        cached.image.width === 0 ||
+        cached.image.height === 0
+      ) {
+        context.fillStyle = "#000";
+        context.fillRect(0, 0, width, height);
+        return;
+      }
+
+      const deltaTime = Math.max(0, currentTime - cached.lastTime);
+      cached.lastTime = currentTime;
+      cached.rotationTarget -= cached.rotationSpeed * deltaTime * 60;
+
+      cached.offsetX +=
+        (cached.targetX - cached.offsetX) * KALEIDOSCOPE_EASE;
+      cached.offsetY +=
+        (cached.targetY - cached.offsetY) * KALEIDOSCOPE_EASE;
+      cached.offsetRotation +=
+        (cached.rotationTarget - cached.offsetRotation) * KALEIDOSCOPE_EASE;
+
+      const cx = cached.image.width / 2;
+      const scale =
+        cached.zoom * (cached.radius / Math.min(cached.image.width, cached.image.height));
+      const step = TWO_PI / cached.slices;
+
+      context.save();
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = cached.pattern ?? "#000";
+
+      for (let i = 0; i <= cached.slices; i++) {
+        context.save();
+        context.translate(width / 2, height / 2);
+        context.rotate(i * step);
+        context.beginPath();
+        context.moveTo(-0.5, -0.5);
+        context.arc(0, 0, cached.radius, step * -0.51, step * 0.51);
+        context.rotate(HALF_PI);
+        context.scale(scale, scale);
+        context.scale(i % 2 === 0 ? 1 : -1, 1);
+        context.translate(cached.offsetX - cx, cached.offsetY);
+        context.rotate(cached.offsetRotation);
+        context.scale(cached.offsetScale, cached.offsetScale);
+        context.fill();
+        context.restore();
+      }
+      context.restore();
     }
   } else if (visualizerType === "highway") {
     const highwayState =
