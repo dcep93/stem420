@@ -12,8 +12,12 @@ const highwayStateMap = new WeakMap<
     lastTime: number;
     speed: number;
     seedOffset: number;
+    stripeOffset: number;
     cacti: Map<number, { progress: number; side: number; speedBias: number }>;
-    spawns: Map<number, { nextTime: number; seed: number; rng: number; sideSpeed: number }>;
+    spawns: Map<
+      number,
+      { nextTime: number; seed: number; rng: number; sideSpeed: number }
+    >;
   }
 >();
 
@@ -52,9 +56,10 @@ export function drawVisualizer({
   const performanceMode = isLowPowerMode();
   context.clearRect(0, 0, width, height);
 
-  const timeDisplay = `${currentTime.toFixed(2)}s / ${Math.max(duration, 0).toFixed(
-    2
-  )}s`;
+  const timeDisplay = `${currentTime.toFixed(2)}s / ${Math.max(
+    duration,
+    0
+  ).toFixed(2)}s`;
 
   context.fillStyle = "#0a0a0a";
   context.fillRect(0, 0, width, height);
@@ -72,7 +77,12 @@ export function drawVisualizer({
 
     for (let i = 0; i < bufferLength; i++) {
       const barHeight = dataArray[i] / 2;
-      const gradient = context.createLinearGradient(0, height, 0, height - barHeight);
+      const gradient = context.createLinearGradient(
+        0,
+        height,
+        0,
+        height - barHeight
+      );
       gradient.addColorStop(0, "#1dd3b0");
       gradient.addColorStop(1, "#6c43f3");
       context.fillStyle = gradient;
@@ -96,7 +106,8 @@ export function drawVisualizer({
     }
 
     const nyquist = sampleRate / 2;
-    const dominantFrequency = bufferLength > 0 ? (peakIndex / bufferLength) * nyquist : 0;
+    const dominantFrequency =
+      bufferLength > 0 ? (peakIndex / bufferLength) * nyquist : 0;
     const hue = Math.max(0, Math.min(280, (dominantFrequency / 2000) * 280));
     const strokeColor = `hsl(${hue}, 80%, 60%)`;
     const fillColor = `hsla(${hue}, 80%, 60%, 0.12)`;
@@ -210,7 +221,12 @@ export function drawVisualizer({
       const rightX = halfWidth + i * barWidth;
 
       context.fillStyle = color;
-      context.fillRect(leftX - barWidth, height - barHeight, barWidth, barHeight);
+      context.fillRect(
+        leftX - barWidth,
+        height - barHeight,
+        barWidth,
+        barHeight
+      );
       context.fillRect(rightX, height - barHeight, barWidth, barHeight);
     }
 
@@ -249,13 +265,26 @@ export function drawVisualizer({
         const x = col * cellWidth + 1;
         const y = row * cellHeight + 1 + offsetY;
 
-        const gradient = context.createLinearGradient(x, y, x + cellWidth, y + cellHeight);
-        gradient.addColorStop(0, `hsla(${hue - 18}, 85%, ${lightness}%, ${alpha * 0.7})`);
-        gradient.addColorStop(1, `hsla(${hue + 18}, 90%, ${lightness + 8}%, ${alpha})`);
+        const gradient = context.createLinearGradient(
+          x,
+          y,
+          x + cellWidth,
+          y + cellHeight
+        );
+        gradient.addColorStop(
+          0,
+          `hsla(${hue - 18}, 85%, ${lightness}%, ${alpha * 0.7})`
+        );
+        gradient.addColorStop(
+          1,
+          `hsla(${hue + 18}, 90%, ${lightness + 8}%, ${alpha})`
+        );
 
         context.fillStyle = gradient;
         context.shadowBlur = intensity * 16;
-        context.shadowColor = `hsla(${hue}, 95%, ${lightness + 10}%, ${0.4 + intensity * 0.4})`;
+        context.shadowColor = `hsla(${hue}, 95%, ${lightness + 10}%, ${
+          0.4 + intensity * 0.4
+        })`;
         context.fillRect(x, y, cellWidth - 2, cellHeight - 2);
 
         if (intensity > 0.45) {
@@ -271,7 +300,12 @@ export function drawVisualizer({
     context.shadowBlur = 0;
     context.globalCompositeOperation = "screen";
     const sweepOffset = (currentTime * 0.8) % (cellWidth * 4);
-    const sweepGradient = context.createLinearGradient(sweepOffset, 0, sweepOffset + 160, 0);
+    const sweepGradient = context.createLinearGradient(
+      sweepOffset,
+      0,
+      sweepOffset + 160,
+      0
+    );
     sweepGradient.addColorStop(0, "rgba(80, 200, 255, 0)");
     sweepGradient.addColorStop(0.5, "rgba(160, 255, 220, 0.25)");
     sweepGradient.addColorStop(1, "rgba(255, 180, 255, 0)");
@@ -411,8 +445,9 @@ export function drawVisualizer({
       const pulse = (Math.sin(currentTime * 1.2 + band) + 1) / 2;
       context.beginPath();
       context.arc(0, 0, radius, 0, Math.PI * 2);
-      context.strokeStyle = `hsla(${180 + pulse * 120}, 80%, ${50 +
-        progress * 25}%, ${0.12 + pulse * 0.18})`;
+      context.strokeStyle = `hsla(${180 + pulse * 120}, 80%, ${
+        50 + progress * 25
+      }%, ${0.12 + pulse * 0.18})`;
       context.lineWidth = 1 + pulse * 2;
       context.stroke();
     }
@@ -547,8 +582,14 @@ export function drawVisualizer({
       const glow = 6 + magnitude * 22;
 
       const gradient = context.createLinearGradient(0, 0, tipX, tipY);
-      gradient.addColorStop(0, `hsla(${hue}, 85%, 65%, ${0.08 + magnitude * 0.35})`);
-      gradient.addColorStop(1, `hsla(${hue + 30}, 90%, 72%, ${0.2 + magnitude * 0.55})`);
+      gradient.addColorStop(
+        0,
+        `hsla(${hue}, 85%, 65%, ${0.08 + magnitude * 0.35})`
+      );
+      gradient.addColorStop(
+        1,
+        `hsla(${hue + 30}, 90%, 72%, ${0.2 + magnitude * 0.55})`
+      );
 
       context.beginPath();
       context.moveTo(leftX, leftY);
@@ -557,7 +598,9 @@ export function drawVisualizer({
       context.closePath();
       context.fillStyle = gradient;
       context.shadowBlur = glow;
-      context.shadowColor = `hsla(${hue + 10}, 95%, 70%, ${0.4 + magnitude * 0.4})`;
+      context.shadowColor = `hsla(${hue + 10}, 95%, 70%, ${
+        0.4 + magnitude * 0.4
+      })`;
       context.fill();
     }
 
@@ -586,7 +629,9 @@ export function drawVisualizer({
       const size = 2 + magnitude * 6;
       context.beginPath();
       context.arc(x, y, size, 0, Math.PI * 2);
-      context.fillStyle = `hsla(${40 + magnitude * 120}, 90%, 70%, ${0.5 + magnitude * 0.4})`;
+      context.fillStyle = `hsla(${40 + magnitude * 120}, 90%, 70%, ${
+        0.5 + magnitude * 0.4
+      })`;
       context.fill();
     }
 
@@ -611,8 +656,14 @@ export function drawVisualizer({
       centerY,
       maxRadius
     );
-    bgGradient.addColorStop(0, `hsla(${(hueDrift + 260) % 360}, 70%, 60%, 0.45)`);
-    bgGradient.addColorStop(0.55, `hsla(${(hueDrift + 190) % 360}, 75%, 54%, 0.3)`);
+    bgGradient.addColorStop(
+      0,
+      `hsla(${(hueDrift + 260) % 360}, 70%, 60%, 0.45)`
+    );
+    bgGradient.addColorStop(
+      0.55,
+      `hsla(${(hueDrift + 190) % 360}, 75%, 54%, 0.3)`
+    );
     bgGradient.addColorStop(1, "#070910");
 
     context.fillStyle = bgGradient;
@@ -637,7 +688,8 @@ export function drawVisualizer({
       context.beginPath();
       for (let p = 0; p < petals; p++) {
         const angle = (p / petals) * Math.PI * 2 + t * 2.4 + currentTime * 0.35;
-        const pulse = 1 + Math.sin(angle * 1.6 + ring * 0.3) * 0.1 + magnitude * 0.3;
+        const pulse =
+          1 + Math.sin(angle * 1.6 + ring * 0.3) * 0.1 + magnitude * 0.3;
         const r = radius * pulse * (1 + wobble * Math.sin(angle * 3));
         const x = Math.cos(angle) * r;
         const y = Math.sin(angle) * r;
@@ -660,7 +712,9 @@ export function drawVisualizer({
     const trailCount = 28;
     for (let i = 0; i < trailCount; i++) {
       const angle = (i / trailCount) * Math.PI * 2 + currentTime * 0.7;
-      const waveIndex = Math.floor((i / trailCount) * (waveformArray.length - 1));
+      const waveIndex = Math.floor(
+        (i / trailCount) * (waveformArray.length - 1)
+      );
       const waveLevel = ((waveformArray[waveIndex] ?? 128) - 128) / 128;
       const radius =
         maxRadius * 0.25 + (i / trailCount) * maxRadius * 0.65 + waveLevel * 12;
@@ -679,14 +733,21 @@ export function drawVisualizer({
     context.rotate(Math.sin(currentTime * 0.45) * 0.32);
     const bandCount = 4;
     for (let band = 0; band < bandCount; band++) {
-      const gradient = context.createLinearGradient(-maxRadius, 0, maxRadius, 0);
+      const gradient = context.createLinearGradient(
+        -maxRadius,
+        0,
+        maxRadius,
+        0
+      );
       const hue = (hueDrift + band * 60) % 360;
       gradient.addColorStop(0, `hsla(${hue}, 75%, 60%, 0)`);
       gradient.addColorStop(0.5, `hsla(${hue + 30}, 85%, 64%, 0.3)`);
       gradient.addColorStop(1, `hsla(${hue + 70}, 75%, 58%, 0)`);
       context.fillStyle = gradient;
       const y =
-        -maxRadius + band * (maxRadius / 2.2) + Math.sin(currentTime * 1.1 + band) * 10;
+        -maxRadius +
+        band * (maxRadius / 2.2) +
+        Math.sin(currentTime * 1.1 + band) * 10;
       context.fillRect(-maxRadius, y, maxRadius * 2, maxRadius / 2.6);
     }
 
@@ -739,7 +800,12 @@ export function drawVisualizer({
       const hue = 210 + value * 120 + col * 1.2;
 
       context.fillStyle = `hsla(${hue}, 80%, 62%, 0.18)`;
-      context.fillRect(baseX, height - columnHeight, columnWidth * 0.7, columnHeight);
+      context.fillRect(
+        baseX,
+        height - columnHeight,
+        columnWidth * 0.7,
+        columnHeight
+      );
 
       const hollowHeight = columnHeight * 0.45;
       const hollowY = height - columnHeight + columnHeight * 0.25;
@@ -799,7 +865,12 @@ export function drawVisualizer({
       }
 
       const opacity = 0.18 + (1 - depth) * 0.16;
-      const gradient = context.createLinearGradient(0, offsetY - 40, width, offsetY + 40);
+      const gradient = context.createLinearGradient(
+        0,
+        offsetY - 40,
+        width,
+        offsetY + 40
+      );
       gradient.addColorStop(0, `hsla(${hue - 30}, 80%, 60%, ${opacity})`);
       gradient.addColorStop(1, `hsla(${hue + 40}, 90%, 70%, ${opacity + 0.1})`);
 
@@ -861,7 +932,10 @@ export function drawVisualizer({
       for (let i = 0; i < bufferLength; i++) {
         const v = (dataArray[i] ?? 0) / 255;
         const y =
-          horizon + depth * 26 + Math.sin(i * 0.08 + drift) * amplitude - v * 28;
+          horizon +
+          depth * 26 +
+          Math.sin(i * 0.08 + drift) * amplitude -
+          v * 28;
         context.lineTo(i * sliceWidth, y);
       }
       context.lineTo(width, height);
@@ -964,8 +1038,9 @@ export function drawVisualizer({
 
       context.beginPath();
       context.arc(0, 0, radius, 0, Math.PI * 2);
-      context.strokeStyle = `hsla(${180 + intensity * 120}, 80%, ${50 +
-        intensity * 30}%, ${0.18 + intensity * 0.4 + flicker})`;
+      context.strokeStyle = `hsla(${180 + intensity * 120}, 80%, ${
+        50 + intensity * 30
+      }%, ${0.18 + intensity * 0.4 + flicker})`;
       context.lineWidth = 1.3 + intensity * 3.5;
       context.shadowBlur = 8 + intensity * 18;
       context.shadowColor = `hsla(${180 + intensity * 120}, 90%, 70%, 0.75)`;
@@ -1028,7 +1103,8 @@ export function drawVisualizer({
     const detailScale = performanceMode ? 0.6 : 1;
     const centerX = width / 2;
     const centerY = height / 2;
-    const maxRadius = Math.hypot(width, height) * (performanceMode ? 0.6 : 0.75);
+    const maxRadius =
+      Math.hypot(width, height) * (performanceMode ? 0.6 : 0.75);
 
     const bassEnergy =
       freqLength > 0
@@ -1039,10 +1115,18 @@ export function drawVisualizer({
         : 0;
     const totalEnergy =
       freqLength > 0
-        ? frequencyData.reduce((sum, value) => sum + value, 0) / (freqLength * 255)
+        ? frequencyData.reduce((sum, value) => sum + value, 0) /
+          (freqLength * 255)
         : 0;
 
-    const bg = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius);
+    const bg = context.createRadialGradient(
+      centerX,
+      centerY,
+      0,
+      centerX,
+      centerY,
+      maxRadius
+    );
     bg.addColorStop(0, "rgba(4, 12, 20, 0.9)");
     bg.addColorStop(0.4, "rgba(10, 12, 28, 0.82)");
     bg.addColorStop(1, "rgba(2, 4, 10, 1)");
@@ -1070,7 +1154,8 @@ export function drawVisualizer({
         const t = s / segments;
         const index = Math.floor(t * (timeLength - 1));
         const osc = ((timeData[index] ?? 128) - 128) / 128;
-        const spiralRadius = Math.pow(t, 0.75) * maxRadius * (0.9 + Math.abs(osc) * 0.25);
+        const spiralRadius =
+          Math.pow(t, 0.75) * maxRadius * (0.9 + Math.abs(osc) * 0.25);
         const wobble = Math.sin(currentTime * 1.3 + s * 0.06 + arm) * 0.35;
         const spin =
           t * loops * Math.PI * 2 +
@@ -1090,7 +1175,9 @@ export function drawVisualizer({
 
       const hue = (120 + arm * 40 + totalEnergy * 200) % 360;
       const glow = 12 + totalEnergy * 28 + bassEnergy * 20;
-      context.strokeStyle = `hsla(${hue}, 95%, ${58 + bassEnergy * 20}%, ${0.24 + totalEnergy * 0.35})`;
+      context.strokeStyle = `hsla(${hue}, 95%, ${58 + bassEnergy * 20}%, ${
+        0.24 + totalEnergy * 0.35
+      })`;
       context.lineWidth = 2 + bassEnergy * 1.2;
       context.shadowBlur = glow;
       context.shadowColor = `hsla(${hue}, 95%, 70%, 0.8)`;
@@ -1108,7 +1195,9 @@ export function drawVisualizer({
         const pulse = 0.3 + Math.sin(currentTime * 2.8 + i) * 0.5;
         context.beginPath();
         context.arc(sparkX, sparkY, 1.4 + pulse * 2.8, 0, Math.PI * 2);
-        context.fillStyle = `hsla(${hue + t * 30}, 95%, 68%, ${0.18 + pulse * 0.25})`;
+        context.fillStyle = `hsla(${hue + t * 30}, 95%, 68%, ${
+          0.18 + pulse * 0.25
+        })`;
         context.fill();
       }
       context.restore();
@@ -1116,7 +1205,10 @@ export function drawVisualizer({
 
     context.globalCompositeOperation = "screen";
     const core = context.createRadialGradient(0, 0, 0, 0, 0, maxRadius * 0.42);
-    core.addColorStop(0, `hsla(${140 + bassEnergy * 90}, 96%, 74%, ${0.35 + totalEnergy * 0.4})`);
+    core.addColorStop(
+      0,
+      `hsla(${140 + bassEnergy * 90}, 96%, 74%, ${0.35 + totalEnergy * 0.4})`
+    );
     core.addColorStop(1, "rgba(0,0,0,0)");
     context.fillStyle = core;
     context.beginPath();
@@ -1133,7 +1225,11 @@ export function drawVisualizer({
     if (!amplitudeEnvelope || !amplitudeEnvelope.length) {
       context.fillStyle = "#ccc";
       context.font = "12px sans-serif";
-      context.fillText("Analyzing track envelope for ribbon view...", 10, baseY);
+      context.fillText(
+        "Analyzing track envelope for ribbon view...",
+        10,
+        baseY
+      );
       return;
     }
 
@@ -1142,7 +1238,10 @@ export function drawVisualizer({
       const baseIndex = Math.floor(index);
       const nextIndex = Math.min(baseIndex + 1, amplitudeEnvelope.length - 1);
       const fraction = index - baseIndex;
-      const first = amplitudeEnvelope[Math.max(0, Math.min(baseIndex, amplitudeEnvelope.length - 1))] ?? 0;
+      const first =
+        amplitudeEnvelope[
+          Math.max(0, Math.min(baseIndex, amplitudeEnvelope.length - 1))
+        ] ?? 0;
       const second = amplitudeEnvelope[nextIndex] ?? first;
       return first + (second - first) * fraction;
     };
@@ -1175,7 +1274,8 @@ export function drawVisualizer({
     rms = Math.sqrt(rms / timeDomain.length);
 
     const nyquist = sampleRate / 2;
-    const dominantFrequency = frequencyBins > 0 ? (peakIndex / frequencyBins) * nyquist : 0;
+    const dominantFrequency =
+      frequencyBins > 0 ? (peakIndex / frequencyBins) * nyquist : 0;
     const hue = Math.max(0, Math.min(280, (dominantFrequency / 2000) * 280));
     const ribbonColor = `hsl(${hue}, 80%, 60%)`;
     const ribbonFillColor = `hsla(${hue}, 80%, 60%, 0.12)`;
@@ -1185,7 +1285,12 @@ export function drawVisualizer({
     context.save();
     context.translate(shakeX, shakeY);
     context.fillStyle = "#070b14";
-    context.fillRect(-Math.abs(shakeX), -Math.abs(shakeY), width + Math.abs(shakeX) * 2, height + Math.abs(shakeY) * 2);
+    context.fillRect(
+      -Math.abs(shakeX),
+      -Math.abs(shakeY),
+      width + Math.abs(shakeX) * 2,
+      height + Math.abs(shakeY) * 2
+    );
 
     context.strokeStyle = "rgba(255, 255, 255, 0.08)";
     context.lineWidth = 1;
@@ -1202,7 +1307,8 @@ export function drawVisualizer({
     for (let x = 0; x <= width; x += 2) {
       const timeOffset = (x / width) * totalWindowSeconds - PAST_WINDOW_SECONDS;
       const sampleTime = currentTime + timeOffset;
-      const amplitude = sampleTime >= 0 ? amplitudeAtTime(sampleTime) : amplitudeAtTime(0);
+      const amplitude =
+        sampleTime >= 0 ? amplitudeAtTime(sampleTime) : amplitudeAtTime(0);
       const normalized = Math.min(1, amplitude / amplitudeMaximum);
       const y = baseY - normalized * ribbonHeight;
 
@@ -1237,7 +1343,8 @@ export function drawVisualizer({
 
     const energy =
       bufferLength > 0
-        ? frequencyData.reduce((sum, value) => sum + value, 0) / (bufferLength * 255)
+        ? frequencyData.reduce((sum, value) => sum + value, 0) /
+          (bufferLength * 255)
         : 0;
 
     const centerX = width / 2;
@@ -1246,9 +1353,19 @@ export function drawVisualizer({
     const slices = Math.max(8, Math.floor(14 * detailScale));
     const sweep = (Math.PI * 2) / slices;
     const maxRadius = Math.sqrt(width * width + height * height) / 2;
-    const pulse = 1 + Math.sin(currentTime * 2.2) * 0.08 + energy * (performanceMode ? 0.28 : 0.4);
+    const pulse =
+      1 +
+      Math.sin(currentTime * 2.2) * 0.08 +
+      energy * (performanceMode ? 0.28 : 0.4);
 
-    const bg = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius);
+    const bg = context.createRadialGradient(
+      centerX,
+      centerY,
+      0,
+      centerX,
+      centerY,
+      maxRadius
+    );
     bg.addColorStop(0, "#090916");
     bg.addColorStop(1, "#04050a");
     context.fillStyle = bg;
@@ -1299,7 +1416,8 @@ export function drawVisualizer({
         context.save();
         context.translate(xTile * tileSize + offset, yTile * tileSize - offset);
         context.rotate(((xTile + yTile) % 2 === 0 ? 1 : -1) * (Math.PI / 4));
-        const tileHue = (energy * 220 + (xTile + yTile) * 14 + currentTime * 60) % 360;
+        const tileHue =
+          (energy * 220 + (xTile + yTile) * 14 + currentTime * 60) % 360;
         context.strokeStyle = `hsla(${tileHue}, 90%, 70%, 0.18)`;
         context.lineWidth = performanceMode ? 1.5 : 2;
         context.beginPath();
@@ -1328,7 +1446,8 @@ export function drawVisualizer({
     const maxRadius = Math.sqrt(width * width + height * height) / 2;
     const totalEnergy =
       freqLength > 0
-        ? frequencyData.reduce((sum, value) => sum + value, 0) / (freqLength * 255)
+        ? frequencyData.reduce((sum, value) => sum + value, 0) /
+          (freqLength * 255)
         : 0;
     const bassEnergy =
       freqLength > 0
@@ -1339,7 +1458,10 @@ export function drawVisualizer({
         : 0;
     const shimmer =
       timeLength > 0
-        ? timeData.reduce((sum, value) => sum + Math.abs((value ?? 128) - 128), 0) /
+        ? timeData.reduce(
+            (sum, value) => sum + Math.abs((value ?? 128) - 128),
+            0
+          ) /
           (timeLength * 128)
         : 0;
 
@@ -1352,8 +1474,14 @@ export function drawVisualizer({
       centerY,
       maxRadius
     );
-    backdrop.addColorStop(0, `hsl(${(baseHue + 40) % 360}, 65%, ${18 + totalEnergy * 18}%)`);
-    backdrop.addColorStop(0.45, `hsl(${(baseHue + 120) % 360}, 60%, ${12 + totalEnergy * 20}%)`);
+    backdrop.addColorStop(
+      0,
+      `hsl(${(baseHue + 40) % 360}, 65%, ${18 + totalEnergy * 18}%)`
+    );
+    backdrop.addColorStop(
+      0.45,
+      `hsl(${(baseHue + 120) % 360}, 60%, ${12 + totalEnergy * 20}%)`
+    );
     backdrop.addColorStop(1, `hsl(${(baseHue + 200) % 360}, 70%, 8%)`);
     context.fillStyle = backdrop;
     context.fillRect(0, 0, width, height);
@@ -1369,7 +1497,11 @@ export function drawVisualizer({
       const osc = ((timeData[idx] ?? 128) - 128) / 128;
       const ripple = Math.sin(t * Math.PI * 6 + currentTime * 1.4) * 0.12;
       const depth = 0.25 + t * 0.9;
-      return depth * maxRadius * (0.65 + Math.abs(osc) * 0.9 + ripple * (0.4 + shimmer));
+      return (
+        depth *
+        maxRadius *
+        (0.65 + Math.abs(osc) * 0.9 + ripple * (0.4 + shimmer))
+      );
     };
 
     const drawPetal = (flip = false) => {
@@ -1391,12 +1523,24 @@ export function drawVisualizer({
       const hue = (baseHue + slice * 18 + shimmer * 90) % 360;
       const lightness = 52 + totalEnergy * 22;
       const saturation = 78 + shimmer * 12;
-      const fill = context.createLinearGradient(0, 0, maxRadius * 0.6, maxRadius);
-      fill.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness + 10}%, 0.26)`);
-      fill.addColorStop(1, `hsla(${(hue + 80) % 360}, ${saturation + 8}%, ${lightness}%, 0.18)`);
+      const fill = context.createLinearGradient(
+        0,
+        0,
+        maxRadius * 0.6,
+        maxRadius
+      );
+      fill.addColorStop(
+        0,
+        `hsla(${hue}, ${saturation}%, ${lightness + 10}%, 0.26)`
+      );
+      fill.addColorStop(
+        1,
+        `hsla(${(hue + 80) % 360}, ${saturation + 8}%, ${lightness}%, 0.18)`
+      );
       context.fillStyle = fill;
-      context.strokeStyle = `hsla(${(hue + 40) % 360}, 95%, ${lightness + 12}%, ${0.55 +
-        totalEnergy * 0.25})`;
+      context.strokeStyle = `hsla(${(hue + 40) % 360}, 95%, ${
+        lightness + 12
+      }%, ${0.55 + totalEnergy * 0.25})`;
       context.lineWidth = performanceMode ? 1.3 : 1.8;
 
       drawPetal();
@@ -1419,16 +1563,22 @@ export function drawVisualizer({
       const spokes = performanceMode ? 24 : 32;
       const glow = 6 + totalEnergy * 16 + progress * 12;
       for (let spoke = 0; spoke < spokes; spoke++) {
-        const angle = (spoke / spokes) * Math.PI * 2 + currentTime * 0.25 + layer * 0.15;
-        const variance = Math.sin(angle * 3 + currentTime * 1.3) * (10 + totalEnergy * 40);
+        const angle =
+          (spoke / spokes) * Math.PI * 2 + currentTime * 0.25 + layer * 0.15;
+        const variance =
+          Math.sin(angle * 3 + currentTime * 1.3) * (10 + totalEnergy * 40);
         context.beginPath();
         context.moveTo(
           Math.cos(angle) * (radius - 14 - variance * 0.3),
           Math.sin(angle) * (radius - 14 - variance * 0.3)
         );
-        context.lineTo(Math.cos(angle) * (radius + variance), Math.sin(angle) * (radius + variance));
-        context.strokeStyle = `hsla(${hue}, 90%, ${50 + progress * 30}%, ${0.18 +
-          totalEnergy * 0.3})`;
+        context.lineTo(
+          Math.cos(angle) * (radius + variance),
+          Math.sin(angle) * (radius + variance)
+        );
+        context.strokeStyle = `hsla(${hue}, 90%, ${50 + progress * 30}%, ${
+          0.18 + totalEnergy * 0.3
+        })`;
         context.lineWidth = performanceMode ? 1 : 1.4;
         context.shadowBlur = glow;
         context.shadowColor = `hsla(${hue}, 90%, 65%, 0.7)`;
@@ -1445,7 +1595,9 @@ export function drawVisualizer({
       const alpha = 0.16 + totalEnergy * 0.35 + progress * 0.1;
       context.beginPath();
       context.arc(0, 0, radius, 0, Math.PI * 2);
-      context.strokeStyle = `hsla(${hue}, 95%, ${45 + progress * 35}%, ${alpha})`;
+      context.strokeStyle = `hsla(${hue}, 95%, ${
+        45 + progress * 35
+      }%, ${alpha})`;
       context.lineWidth = 1.4 + Math.sin(currentTime * 2 + ring) * 0.6;
       context.stroke();
     }
@@ -1456,9 +1608,16 @@ export function drawVisualizer({
       const hue = (baseHue + t * 260 + shimmer * 80) % 360;
       const radius = (0.05 + t * 0.95) * maxRadius;
       const theta = wedge * i * 0.5 + currentTime * (0.6 + totalEnergy * 0.6);
-      const flicker = 0.2 + totalEnergy * 0.6 + Math.sin(currentTime * 3 + i) * 0.12;
+      const flicker =
+        0.2 + totalEnergy * 0.6 + Math.sin(currentTime * 3 + i) * 0.12;
       context.beginPath();
-      context.arc(Math.cos(theta) * radius, Math.sin(theta) * radius, 1.2 + flicker * 2.6, 0, Math.PI * 2);
+      context.arc(
+        Math.cos(theta) * radius,
+        Math.sin(theta) * radius,
+        1.2 + flicker * 2.6,
+        0,
+        Math.PI * 2
+      );
       context.fillStyle = `hsla(${hue}, 95%, 68%, ${0.15 + flicker * 0.35})`;
       context.fill();
     }
@@ -1473,8 +1632,15 @@ export function drawVisualizer({
           lastTime: 0,
           speed: 1,
           seedOffset: Math.floor(Math.random() * 100000),
-          cacti: new Map<number, { progress: number; side: number; speedBias: number }>(),
-          spawns: new Map<number, { nextTime: number; seed: number; rng: number; sideSpeed: number }>(),
+          stripeOffset: 0,
+          cacti: new Map<
+            number,
+            { progress: number; side: number; speedBias: number }
+          >(),
+          spawns: new Map<
+            number,
+            { nextTime: number; seed: number; rng: number; sideSpeed: number }
+          >(),
         };
         highwayStateMap.set(canvas, initialState);
         return initialState;
@@ -1495,6 +1661,14 @@ export function drawVisualizer({
     const midEnergy = averageRange(slice, midSlice);
     const highEnergy = averageRange(midSlice, bufferLength);
     const totalEnergy = (bassEnergy + midEnergy + highEnergy) / 3;
+    const deltaTime = Math.max(0, currentTime - highwayState.lastTime);
+    if (currentTime < highwayState.lastTime) {
+      highwayState.cacti.clear();
+      highwayState.spawns.clear();
+      highwayState.speed = 1;
+      highwayState.stripeOffset = 0;
+    }
+    highwayState.lastTime = currentTime;
     const evolveProgress = Math.min(1, currentTime / 18);
     const energyBoost = 0.35 + totalEnergy * 0.5;
     const evolution = (0.18 + evolveProgress * 0.82) * energyBoost;
@@ -1503,7 +1677,8 @@ export function drawVisualizer({
       const x = Math.sin(seed * 91.123 + seed * seed * 0.017) * 10000;
       return x - Math.floor(x);
     };
-    const lerp = (start: number, end: number, t: number) => start + (end - start) * t;
+    const lerp = (start: number, end: number, t: number) =>
+      start + (end - start) * t;
     const blendHue = (from: number, to: number, t: number) => {
       const delta = ((to - from + 540) % 360) - 180;
       return (from + delta * t + 360) % 360;
@@ -1513,8 +1688,15 @@ export function drawVisualizer({
     const baseWindow = 8;
     const segmentIndex = Math.floor(currentTime / baseWindow);
     const segmentSeed = segmentIndex + 1;
-    const segmentDuration = lerp(minShift, maxShift, hashFloat(segmentSeed * 11.3));
-    const segmentProgress = Math.min(1, (currentTime - segmentIndex * baseWindow) / segmentDuration);
+    const segmentDuration = lerp(
+      minShift,
+      maxShift,
+      hashFloat(segmentSeed * 11.3)
+    );
+    const segmentProgress = Math.min(
+      1,
+      (currentTime - segmentIndex * baseWindow) / segmentDuration
+    );
     const snapChance = hashFloat(segmentSeed * 9.1);
     const snapMix = snapChance > 0.86;
     const easedProgress = snapMix
@@ -1526,7 +1708,9 @@ export function drawVisualizer({
       const selector = hashFloat(seed * 3.3);
       if (selector < 0.6) {
         const redPick = hashFloat(seed * 5.1);
-        return redPick < 0.5 ? lerp(330, 360, redPick * 2) : lerp(0, 30, (redPick - 0.5) * 2);
+        return redPick < 0.5
+          ? lerp(330, 360, redPick * 2)
+          : lerp(0, 30, (redPick - 0.5) * 2);
       }
       return lerp(200, 260, hashFloat(seed * 7.7));
     };
@@ -1534,24 +1718,40 @@ export function drawVisualizer({
     const baseTargetB = pickHue((segmentSeed + 1) * 2.7);
     const accentTargetA = pickHue(segmentSeed * 5.4);
     const accentTargetB = pickHue((segmentSeed + 1) * 5.4);
-    const originalBaseTargetA = (190 + hashFloat(segmentSeed * 2.7) * 140) % 360;
-    const originalBaseTargetB = (190 + hashFloat((segmentSeed + 1) * 2.7) * 140) % 360;
-    const originalAccentTargetA = (20 + hashFloat(segmentSeed * 5.4) * 120) % 360;
-    const originalAccentTargetB = (20 + hashFloat((segmentSeed + 1) * 5.4) * 120) % 360;
+    const originalBaseTargetA =
+      (190 + hashFloat(segmentSeed * 2.7) * 140) % 360;
+    const originalBaseTargetB =
+      (190 + hashFloat((segmentSeed + 1) * 2.7) * 140) % 360;
+    const originalAccentTargetA =
+      (20 + hashFloat(segmentSeed * 5.4) * 120) % 360;
+    const originalAccentTargetB =
+      (20 + hashFloat((segmentSeed + 1) * 5.4) * 120) % 360;
     const hueWobble = Math.sin(currentTime * 0.25 + segmentSeed) * 6;
     const psychedelicMix = Math.min(1, currentTime / 20);
-    const baseHue = blendHue(
-      blendHue(originalBaseTargetA, originalBaseTargetB, easedProgress),
-      blendHue(baseTargetA, baseTargetB, easedProgress),
-      psychedelicMix
-    ) + hueWobble;
-    const accentHue = blendHue(
-      blendHue(originalAccentTargetA, originalAccentTargetB, easedProgress),
-      blendHue(accentTargetA, accentTargetB, easedProgress),
-      psychedelicMix
-    ) + hueWobble * 0.6;
-    const saturationLift = (10 + hashFloat(segmentSeed * 7.7) * 12) * (1 - psychedelicMix) + (18 + hashFloat(segmentSeed * 7.7) * 18) * psychedelicMix;
-    const lightnessLift = (6 + hashFloat(segmentSeed * 8.8) * 6) * (1 - psychedelicMix) + (8 + hashFloat(segmentSeed * 8.8) * 10) * psychedelicMix;
+    const baseHue =
+      blendHue(
+        blendHue(originalBaseTargetA, originalBaseTargetB, easedProgress),
+        blendHue(baseTargetA, baseTargetB, easedProgress),
+        psychedelicMix
+      ) + hueWobble;
+    const accentHue =
+      blendHue(
+        blendHue(originalAccentTargetA, originalAccentTargetB, easedProgress),
+        blendHue(accentTargetA, accentTargetB, easedProgress),
+        psychedelicMix
+      ) +
+      hueWobble * 0.6;
+    const saturationLift =
+      (10 + hashFloat(segmentSeed * 7.7) * 12) * (1 - psychedelicMix) +
+      (18 + hashFloat(segmentSeed * 7.7) * 18) * psychedelicMix;
+    const lightnessLift =
+      (6 + hashFloat(segmentSeed * 8.8) * 6) * (1 - psychedelicMix) +
+      (8 + hashFloat(segmentSeed * 8.8) * 10) * psychedelicMix;
+    const speedTarget = 0.85 + totalEnergy * 0.6;
+    highwayState.speed = lerp(highwayState.speed, speedTarget, 0.04);
+    const stripeSpeed = (1.1 + totalEnergy * 0.6) * highwayState.speed;
+    highwayState.stripeOffset =
+      (highwayState.stripeOffset + deltaTime * stripeSpeed) % 1;
 
     const hexToRgb = (hex: string) => {
       const value = hex.replace("#", "");
@@ -1595,10 +1795,17 @@ export function drawVisualizer({
         b: Math.round((b + m) * 255),
       };
     };
-    const mixColor = (fromHex: string, toRgb: { r: number; g: number; b: number }, t: number) => {
+    const mixColor = (
+      fromHex: string,
+      toRgb: { r: number; g: number; b: number },
+      t: number
+    ) => {
       const from = hexToRgb(fromHex);
       const mix = (a: number, b: number) => Math.round(a + (b - a) * t);
-      return `rgb(${mix(from.r, toRgb.r)}, ${mix(from.g, toRgb.g)}, ${mix(from.b, toRgb.b)})`;
+      return `rgb(${mix(from.r, toRgb.r)}, ${mix(from.g, toRgb.g)}, ${mix(
+        from.b,
+        toRgb.b
+      )})`;
     };
 
     const horizon = height * 0.52;
@@ -1607,7 +1814,11 @@ export function drawVisualizer({
       0,
       mixColor(
         "#2f7dac",
-        hslToRgb(baseHue, 82 + saturationLift, 46 + lightnessLift + highEnergy * 10),
+        hslToRgb(
+          baseHue,
+          82 + saturationLift,
+          46 + lightnessLift + highEnergy * 10
+        ),
         evolution * 0.9
       )
     );
@@ -1615,7 +1826,11 @@ export function drawVisualizer({
       1,
       mixColor(
         "#1b5f8b",
-        hslToRgb((baseHue + 20) % 360, 78 + saturationLift, 34 + lightnessLift + midEnergy * 8),
+        hslToRgb(
+          (baseHue + 20) % 360,
+          78 + saturationLift,
+          34 + lightnessLift + midEnergy * 8
+        ),
         evolution * 0.9
       )
     );
@@ -1653,7 +1868,13 @@ export function drawVisualizer({
       evolution
     );
     context.beginPath();
-    context.arc(sunCenterX, sunCenterY, sunRadius * 0.64, Math.PI * 1.08, Math.PI * 1.92);
+    context.arc(
+      sunCenterX,
+      sunCenterY,
+      sunRadius * 0.64,
+      Math.PI * 1.08,
+      Math.PI * 1.92
+    );
     context.lineTo(sunCenterX + sunRadius * 0.64, sunCenterY);
     context.closePath();
     context.fill();
@@ -1663,7 +1884,13 @@ export function drawVisualizer({
       context.strokeStyle = color;
       context.lineWidth = Math.max(28, sunRadius * 0.11);
       context.lineCap = "round";
-      context.arc(sunCenterX, sunCenterY, radius, Math.PI * 1.06, Math.PI * 1.94);
+      context.arc(
+        sunCenterX,
+        sunCenterY,
+        radius,
+        Math.PI * 1.06,
+        Math.PI * 1.94
+      );
       context.stroke();
     });
 
@@ -1671,9 +1898,33 @@ export function drawVisualizer({
       context.fillStyle = tint;
       context.beginPath();
       context.ellipse(x, y, 70 * scale, 40 * scale, 0, 0, Math.PI * 2);
-      context.ellipse(x - 55 * scale, y + 6 * scale, 45 * scale, 28 * scale, 0, 0, Math.PI * 2);
-      context.ellipse(x + 55 * scale, y + 4 * scale, 50 * scale, 32 * scale, 0, 0, Math.PI * 2);
-      context.ellipse(x - 8 * scale, y - 28 * scale, 60 * scale, 38 * scale, 0, 0, Math.PI * 2);
+      context.ellipse(
+        x - 55 * scale,
+        y + 6 * scale,
+        45 * scale,
+        28 * scale,
+        0,
+        0,
+        Math.PI * 2
+      );
+      context.ellipse(
+        x + 55 * scale,
+        y + 4 * scale,
+        50 * scale,
+        32 * scale,
+        0,
+        0,
+        Math.PI * 2
+      );
+      context.ellipse(
+        x - 8 * scale,
+        y - 28 * scale,
+        60 * scale,
+        38 * scale,
+        0,
+        0,
+        Math.PI * 2
+      );
       context.fill();
       context.strokeStyle = "rgba(20, 20, 20, 0.16)";
       context.lineWidth = 2;
@@ -1683,19 +1934,31 @@ export function drawVisualizer({
       width * 0.18,
       height * 0.24,
       0.4,
-      mixColor("#f7f3ea", hslToRgb((baseHue + 12) % 360, 34, 90), evolution * 0.6)
+      mixColor(
+        "#f7f3ea",
+        hslToRgb((baseHue + 12) % 360, 34, 90),
+        evolution * 0.6
+      )
     );
     drawCloud(
       width * 0.28,
       height * 0.34,
       0.32,
-      mixColor("#f2eee5", hslToRgb((baseHue + 20) % 360, 34, 86), evolution * 0.6)
+      mixColor(
+        "#f2eee5",
+        hslToRgb((baseHue + 20) % 360, 34, 86),
+        evolution * 0.6
+      )
     );
     drawCloud(
       width * 0.82,
       height * 0.26,
       0.46,
-      mixColor("#f7f1e7", hslToRgb((baseHue + 10) % 360, 36, 88), evolution * 0.6)
+      mixColor(
+        "#f7f1e7",
+        hslToRgb((baseHue + 10) % 360, 36, 88),
+        evolution * 0.6
+      )
     );
 
     const horizonBandHeight = height * 0.04;
@@ -1707,12 +1970,36 @@ export function drawVisualizer({
     context.fillRect(0, horizon - horizonBandHeight, width, horizonBandHeight);
 
     const fieldBands = [
-      mixColor("#e8c56f", hslToRgb((baseHue + 6) % 360, 78, 32 + bassEnergy * 10), evolution * psychedelicMix),
-      mixColor("#e0bc64", hslToRgb((baseHue + 12) % 360, 76, 30 + midEnergy * 10), evolution * psychedelicMix),
-      mixColor("#3b8b3d", hslToRgb((baseHue + 18) % 360, 80, 34 + highEnergy * 10), evolution * 0.95 * psychedelicMix),
-      mixColor("#e2c06a", hslToRgb((baseHue + 24) % 360, 74, 28 + midEnergy * 10), evolution * psychedelicMix),
-      mixColor("#d8b75f", hslToRgb((baseHue + 30) % 360, 82, 32 + bassEnergy * 10), evolution * psychedelicMix),
-      mixColor("#e8c56f", hslToRgb((baseHue + 36) % 360, 78, 36 + totalEnergy * 10), evolution * psychedelicMix),
+      mixColor(
+        "#e8c56f",
+        hslToRgb((baseHue + 6) % 360, 78, 32 + bassEnergy * 10),
+        evolution * psychedelicMix
+      ),
+      mixColor(
+        "#e0bc64",
+        hslToRgb((baseHue + 12) % 360, 76, 30 + midEnergy * 10),
+        evolution * psychedelicMix
+      ),
+      mixColor(
+        "#3b8b3d",
+        hslToRgb((baseHue + 18) % 360, 80, 34 + highEnergy * 10),
+        evolution * 0.95 * psychedelicMix
+      ),
+      mixColor(
+        "#e2c06a",
+        hslToRgb((baseHue + 24) % 360, 74, 28 + midEnergy * 10),
+        evolution * psychedelicMix
+      ),
+      mixColor(
+        "#d8b75f",
+        hslToRgb((baseHue + 30) % 360, 82, 32 + bassEnergy * 10),
+        evolution * psychedelicMix
+      ),
+      mixColor(
+        "#e8c56f",
+        hslToRgb((baseHue + 36) % 360, 78, 36 + totalEnergy * 10),
+        evolution * psychedelicMix
+      ),
     ];
     const fieldTop = horizon;
     const fieldHeight = height - fieldTop;
@@ -1748,44 +2035,99 @@ export function drawVisualizer({
     context.lineTo(width / 2 + roadBottom, height);
     context.stroke();
 
-    const dashCount = 12;
-    let dashY = horizon - horizonBandHeight * 0.05;
-    for (let i = 0; i < dashCount; i++) {
-      const t = i / dashCount;
-      const dashHeight = 10 + t * 18;
-      const dashWidth = 6 + t * 10;
-      const gap = 8 + t * 22;
+    const dashCount = 2;
+    const dashLength = 0.4;
+    const drawCenterDash = (tStart: number, tEnd: number) => {
+      const dashYStart = horizon + tStart * fieldHeight;
+      const dashYEnd = horizon + tEnd * fieldHeight;
+      const dashWidthStart = 4 + tStart * 10;
+      const dashWidthEnd = 4 + tEnd * 10;
       context.fillStyle = "#f4f4f4";
-      context.fillRect(width / 2 - dashWidth / 2, dashY, dashWidth, dashHeight);
-      dashY += dashHeight + gap;
-      if (dashY > height) {
-        break;
+      context.beginPath();
+      context.moveTo(width / 2 - dashWidthStart / 2, dashYStart);
+      context.lineTo(width / 2 + dashWidthStart / 2, dashYStart);
+      context.lineTo(width / 2 + dashWidthEnd / 2, dashYEnd);
+      context.lineTo(width / 2 - dashWidthEnd / 2, dashYEnd);
+      context.closePath();
+      context.fill();
+    };
+    for (let i = 0; i < dashCount; i++) {
+      const tStart = (i / dashCount + highwayState.stripeOffset) % 1;
+      const tEnd = tStart + dashLength;
+      if (tEnd <= 1) {
+        drawCenterDash(tStart, tEnd);
+      } else {
+        drawCenterDash(tStart, 1);
+        drawCenterDash(0, tEnd - 1);
       }
     }
 
     const stripeColors = [
-      mixColor("#e6c46b", hslToRgb((accentHue + 10) % 360, 84, 62 + bassEnergy * 12), evolution * psychedelicMix),
-      mixColor("#d9b75f", hslToRgb((accentHue + 20) % 360, 82, 58 + midEnergy * 12), evolution * psychedelicMix),
-      mixColor("#cfae56", hslToRgb((accentHue + 30) % 360, 86, 54 + highEnergy * 12), evolution * psychedelicMix),
-      mixColor("#b3a056", hslToRgb((accentHue + 40) % 360, 88, 60 + totalEnergy * 12), evolution * psychedelicMix),
+      mixColor(
+        "#e6c46b",
+        hslToRgb((accentHue + 10) % 360, 84, 62 + bassEnergy * 12),
+        evolution * psychedelicMix
+      ),
+      mixColor(
+        "#d9b75f",
+        hslToRgb((accentHue + 20) % 360, 82, 58 + midEnergy * 12),
+        evolution * psychedelicMix
+      ),
+      mixColor(
+        "#cfae56",
+        hslToRgb((accentHue + 30) % 360, 86, 54 + highEnergy * 12),
+        evolution * psychedelicMix
+      ),
+      mixColor(
+        "#b3a056",
+        hslToRgb((accentHue + 40) % 360, 88, 60 + totalEnergy * 12),
+        evolution * psychedelicMix
+      ),
     ];
-    const stripeCount = 10;
+    const stripeCount = 3;
+    const stripeLength = 0.14;
+    const drawStripeSegment = (
+      tStart: number,
+      tEnd: number,
+      colorIndex: number
+    ) => {
+      const stripeYStart = horizon + tStart * fieldHeight;
+      const stripeYEnd = horizon + tEnd * fieldHeight;
+      const stripeWidthStart = roadTop + (roadBottom - roadTop) * tStart;
+      const stripeWidthEnd = roadTop + (roadBottom - roadTop) * tEnd;
+      const stripePaddingStart = 16 + tStart * 28;
+      const stripePaddingEnd = 16 + tEnd * 28;
+      const stripeAlpha = 0.2 + tStart * 0.7;
+      context.strokeStyle =
+        stripeColors[colorIndex % stripeColors.length] ?? "#e88f3b";
+      context.lineWidth = 4 + tStart * 3;
+      context.globalAlpha = stripeAlpha;
+      context.beginPath();
+      context.moveTo(
+        width / 2 - stripeWidthStart - stripePaddingStart,
+        stripeYStart
+      );
+      context.lineTo(width / 2 - stripeWidthEnd - stripePaddingEnd, stripeYEnd);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(
+        width / 2 + stripeWidthStart + stripePaddingStart,
+        stripeYStart
+      );
+      context.lineTo(width / 2 + stripeWidthEnd + stripePaddingEnd, stripeYEnd);
+      context.stroke();
+    };
     for (let i = 0; i < stripeCount; i++) {
-      const t = i / (stripeCount - 1);
-      const stripeY = horizon + t * fieldHeight;
-      const stripeWidth = roadTop + (roadBottom - roadTop) * t;
-      const stripePadding = 16 + t * 28;
-      context.strokeStyle = stripeColors[i % stripeColors.length] ?? "#e88f3b";
-      context.lineWidth = 6;
-      context.beginPath();
-      context.moveTo(width / 2 - stripeWidth - stripePadding, stripeY);
-      context.lineTo(width / 2 - roadBottom - stripePadding, height);
-      context.stroke();
-      context.beginPath();
-      context.moveTo(width / 2 + stripeWidth + stripePadding, stripeY);
-      context.lineTo(width / 2 + roadBottom + stripePadding, height);
-      context.stroke();
+      const tStart = i / (stripeCount - 1);
+      const tEnd = tStart + stripeLength;
+      if (tEnd <= 1) {
+        drawStripeSegment(tStart, tEnd, i);
+      } else {
+        drawStripeSegment(tStart, 1, i);
+        drawStripeSegment(0, tEnd - 1, i);
+      }
     }
+    context.globalAlpha = 1;
 
     const drawCactus = (t: number, side: number, seed: number) => {
       const roadWidth = roadTop + (roadBottom - roadTop) * t;
@@ -1804,9 +2146,24 @@ export function drawVisualizer({
       context.fillStyle = "#1fa84e";
       context.strokeStyle = "rgba(8, 60, 24, 0.75)";
       context.lineWidth = Math.max(2, 3 * scale);
-      context.fillRect(x - bodyWidth / 2, baseY - bodyHeight, bodyWidth, bodyHeight);
-      context.fillRect(x - bodyWidth / 2 - armOffset, baseY - bodyHeight * 0.7, armWidth, armHeight);
-      context.fillRect(x + bodyWidth / 2 + armOffset - armWidth, baseY - bodyHeight * 0.62, armWidth, armHeight);
+      context.fillRect(
+        x - bodyWidth / 2,
+        baseY - bodyHeight,
+        bodyWidth,
+        bodyHeight
+      );
+      context.fillRect(
+        x - bodyWidth / 2 - armOffset,
+        baseY - bodyHeight * 0.7,
+        armWidth,
+        armHeight
+      );
+      context.fillRect(
+        x + bodyWidth / 2 + armOffset - armWidth,
+        baseY - bodyHeight * 0.62,
+        armWidth,
+        armHeight
+      );
       context.beginPath();
       context.moveTo(x - bodyWidth / 2, baseY - bodyHeight);
       context.lineTo(x - bodyWidth / 2, baseY);
@@ -1817,17 +2174,9 @@ export function drawVisualizer({
     };
 
     const cactusInterval = 7.2;
-    const deltaTime = Math.max(0, currentTime - highwayState.lastTime);
-    if (currentTime < highwayState.lastTime) {
-      highwayState.cacti.clear();
-      highwayState.spawns.clear();
-      highwayState.speed = 1;
-    }
-    highwayState.lastTime = currentTime;
-    const speedTarget = 0.85 + totalEnergy * 0.6;
-    highwayState.speed = lerp(highwayState.speed, speedTarget, 0.04);
     highwayState.cacti.forEach((cactus) => {
-      cactus.progress += (deltaTime * highwayState.speed * cactus.speedBias) / cactusInterval;
+      cactus.progress +=
+        (deltaTime * highwayState.speed * cactus.speedBias) / cactusInterval;
     });
     highwayState.cacti.forEach((cactus, seed) => {
       if (cactus.progress > 1.1) {
@@ -1843,10 +2192,14 @@ export function drawVisualizer({
       if (!spawnState) {
         const baseSeed =
           Math.floor(
-            hashFloat((currentTime + 11.3 + highwayState.seedOffset) * 1.7 + side * 91.7) * 100000
+            hashFloat(
+              (currentTime + 11.3 + highwayState.seedOffset) * 1.7 + side * 91.7
+            ) * 100000
           ) + 1;
         const seed = baseSeed * 10 + (side > 0 ? 1 : 2);
-        const rngSeed = Math.floor(hashFloat(seed * 13.1 + side * 77.3) * 4294967296);
+        const rngSeed = Math.floor(
+          hashFloat(seed * 13.1 + side * 77.3) * 4294967296
+        );
         const sideSpeed = lerp(0.92, 1.08, hashFloat(seed * 3.7 + side * 19.1));
         const initialState = { rng: rngSeed };
         const gap = lerp(3.6, 9.8, nextRandom(initialState));
@@ -1862,7 +2215,11 @@ export function drawVisualizer({
       while (currentTime >= spawnState.nextTime && loops < 3) {
         const seed = spawnState.seed;
         if (!highwayState.cacti.has(seed)) {
-          const perCactusBias = lerp(0.94, 1.06, hashFloat(seed * 2.3 + side * 7.1));
+          const perCactusBias = lerp(
+            0.94,
+            1.06,
+            hashFloat(seed * 2.3 + side * 7.1)
+          );
           const speedBias = spawnState.sideSpeed * perCactusBias;
           highwayState.cacti.set(seed, { progress: 0, side, speedBias });
         }
@@ -1944,7 +2301,8 @@ export function drawVisualizer({
       const t = ring / echoRings;
       const dataIndex = Math.floor(t * (bufferLength - 1));
       const level = ((timeData[dataIndex] ?? 128) - 128) / 128;
-      const radius = maxRadius * (0.2 + t * 0.8) + Math.sin(currentTime * 1.8 - t * 2) * 8;
+      const radius =
+        maxRadius * (0.2 + t * 0.8) + Math.sin(currentTime * 1.8 - t * 2) * 8;
       const echo = 1 + Math.abs(level) * 0.8;
       context.beginPath();
       context.arc(centerX, centerY, radius * echo, 0, Math.PI * 2);
@@ -1977,7 +2335,11 @@ export function drawVisualizer({
     if (!amplitudeEnvelope || !amplitudeEnvelope.length) {
       context.fillStyle = "#ccc";
       context.font = "12px sans-serif";
-      context.fillText("Analyzing track envelope for ribbon view...", 10, baseY);
+      context.fillText(
+        "Analyzing track envelope for ribbon view...",
+        10,
+        baseY
+      );
       return;
     }
 
@@ -1986,7 +2348,10 @@ export function drawVisualizer({
       const baseIndex = Math.floor(index);
       const nextIndex = Math.min(baseIndex + 1, amplitudeEnvelope.length - 1);
       const fraction = index - baseIndex;
-      const first = amplitudeEnvelope[Math.max(0, Math.min(baseIndex, amplitudeEnvelope.length - 1))] ?? 0;
+      const first =
+        amplitudeEnvelope[
+          Math.max(0, Math.min(baseIndex, amplitudeEnvelope.length - 1))
+        ] ?? 0;
       const second = amplitudeEnvelope[nextIndex] ?? first;
       return first + (second - first) * fraction;
     };
@@ -2010,7 +2375,8 @@ export function drawVisualizer({
     }
 
     const nyquist = sampleRate / 2;
-    const dominantFrequency = frequencyBins > 0 ? (peakIndex / frequencyBins) * nyquist : 0;
+    const dominantFrequency =
+      frequencyBins > 0 ? (peakIndex / frequencyBins) * nyquist : 0;
     const hue = Math.max(0, Math.min(280, (dominantFrequency / 2000) * 280));
     const ribbonColor = `hsl(${hue}, 80%, 60%)`;
     const ribbonFillColor = `hsla(${hue}, 80%, 60%, 0.12)`;
