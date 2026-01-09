@@ -14,17 +14,17 @@ import {
   removeCachedOutputs,
 } from "../indexedDbClient";
 import {
+  applyAudioEffect,
+  audioEffectOptions,
+  type AudioEffectType,
+  createEffectNodes,
+  type EffectNodes,
+  getDefaultEffectValue,
+} from "./player/audioEffects";
+import {
   analyzeChordTimeline,
   type ChordSnapshot,
 } from "./player/chordAnalyzer";
-import {
-  applyAudioEffect,
-  audioEffectOptions,
-  createEffectNodes,
-  getDefaultEffectValue,
-  type EffectNodes,
-  type AudioEffectType,
-} from "./player/audioEffects";
 import { TrackRow } from "./player/TrackRow";
 import {
   AMPLITUDE_WINDOW_SECONDS,
@@ -362,10 +362,6 @@ export default function Player({ record, onClose }: PlayerProps) {
     [ensureAudioContext]
   );
 
-  const getPlaybackRateForTrack = useCallback((trackId: string) => {
-    return 1;
-  }, []);
-
   const currentPlaybackTime = useCallback(() => {
     const context = audioCtxRef.current;
 
@@ -546,7 +542,8 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         setEffectValues((previous) => ({
           ...previous,
-          [track.id]: previous[track.id] ?? getDefaultEffectValue(startingEffect),
+          [track.id]:
+            previous[track.id] ?? getDefaultEffectValue(startingEffect),
         }));
         setEffectTypes((previous) => ({
           ...previous,
@@ -875,10 +872,6 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         const source = context.createBufferSource();
         source.buffer = buffer;
-        source.playbackRate.setValueAtTime(
-          getPlaybackRateForTrack(track.id),
-          startAt
-        );
         source.connect(gainNode);
         source.start(startAt, offsetSeconds);
         newSources[track.id] = source;
@@ -888,7 +881,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       startAtCtxTimeRef.current = startAt;
       setIsPlaying(true);
     },
-    [ensureAudioContext, getPlaybackRateForTrack, tracks]
+    [ensureAudioContext, tracks]
   );
 
   const commitSeek = useCallback(
