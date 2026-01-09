@@ -11,6 +11,7 @@ const highwayStateMap = new WeakMap<
   {
     lastTime: number;
     speed: number;
+    seedOffset: number;
     cacti: Map<number, { progress: number; side: number; speedBias: number }>;
     spawns: Map<number, { nextTime: number; seed: number; rng: number; sideSpeed: number }>;
   }
@@ -1471,6 +1472,7 @@ export function drawVisualizer({
         const initialState = {
           lastTime: 0,
           speed: 1,
+          seedOffset: Math.floor(Math.random() * 100000),
           cacti: new Map<number, { progress: number; side: number; speedBias: number }>(),
           spawns: new Map<number, { nextTime: number; seed: number; rng: number; sideSpeed: number }>(),
         };
@@ -1839,7 +1841,10 @@ export function drawVisualizer({
     const spawnCactiForSide = (side: number) => {
       const spawnState = highwayState.spawns.get(side);
       if (!spawnState) {
-        const baseSeed = Math.floor(hashFloat((currentTime + 11.3) * 1.7 + side * 91.7) * 100000) + 1;
+        const baseSeed =
+          Math.floor(
+            hashFloat((currentTime + 11.3 + highwayState.seedOffset) * 1.7 + side * 91.7) * 100000
+          ) + 1;
         const seed = baseSeed * 10 + (side > 0 ? 1 : 2);
         const rngSeed = Math.floor(hashFloat(seed * 13.1 + side * 77.3) * 4294967296);
         const sideSpeed = lerp(0.92, 1.08, hashFloat(seed * 3.7 + side * 19.1));
