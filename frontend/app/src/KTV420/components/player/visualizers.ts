@@ -2036,7 +2036,7 @@ export function drawVisualizer({
     context.stroke();
 
     const dashCount = 2;
-    const dashLength = 0.4;
+    const dashLength = 0.25;
     const drawCenterDash = (tStart: number, tEnd: number) => {
       const dashYStart = horizon + tStart * fieldHeight;
       const dashYEnd = horizon + tEnd * fieldHeight;
