@@ -2175,8 +2175,10 @@ export function drawVisualizer({
 
     const cactusInterval = 7.2;
     highwayState.cacti.forEach((cactus) => {
+      const perspectiveSpeed = (1 + cactus.progress) ** 3;
       cactus.progress +=
-        (deltaTime * highwayState.speed * cactus.speedBias) / cactusInterval;
+        (deltaTime * highwayState.speed * cactus.speedBias * perspectiveSpeed) /
+        cactusInterval;
     });
     highwayState.cacti.forEach((cactus, seed) => {
       if (cactus.progress > 1.1) {
