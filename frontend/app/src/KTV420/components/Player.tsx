@@ -112,9 +112,11 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [chordTimeline, setChordTimeline] = useState<ChordSnapshot[]>([]);
   const [chordStatus, setChordStatus] = useState<string>(
-    "Analyzing harmony..."
+    "Harmonic analyzer standing by"
   );
   const [currentChord, setCurrentChord] = useState<string>("Detecting...");
+  const [isHarmonicAnalysisRunning, setIsHarmonicAnalysisRunning] =
+    useState(false);
   const isAnyTrackDeafened = useMemo(
     () => Object.values(trackDeafenStates).some(Boolean),
     [trackDeafenStates]
@@ -178,6 +180,13 @@ export default function Player({ record, onClose }: PlayerProps) {
   const chordDisplay = chordTimeline.length
     ? currentChord
     : chordStatus ?? "Analyzing harmony...";
+  const isInputTrackReady = useMemo(() => {
+    if (!inputTrackId) {
+      return false;
+    }
+
+    return readyTrackIds.includes(inputTrackId);
+  }, [inputTrackId, readyTrackIds]);
 
   const trackLookup = useMemo(() => {
     return tracks.reduce<Record<string, Track>>((lookup, track) => {
@@ -593,84 +602,8 @@ export default function Player({ record, onClose }: PlayerProps) {
         });
 
         if (track.id === inputTrackId) {
-          setChordStatus("Checking cached harmony...");
-
-          try {
-            const cachedRecord = await getCachedChordTimeline(record.md5);
-
-            if (!isCancelled && cachedRecord) {
-              const cachedTimeline = cachedRecord.timeline ?? [];
-              setChordTimeline(cachedTimeline);
-              setChordStatus(
-                cachedTimeline.length
-                  ? "Harmonic map ready"
-                  : "No obvious chords detected"
-              );
-              return;
-            }
-          } catch (cacheError) {
-            console.warn("Failed to load cached chord timeline", cacheError);
-          }
-
-          setChordStatus("Analyzing harmony from input MP3...");
-
-          const runChordAnalysis = async () => {
-            if (isCancelled) {
-              return;
-            }
-
-            try {
-              const timeline = await analyzeChordTimeline(audioBuffer, {
-                stableFrameCount: 2,
-                minimumConfidence: 0.16,
-                windowSeconds: 1.6,
-                hopSeconds: 0.5,
-                targetSampleRate: 11025,
-                yieldEveryFrames: 6,
-              });
-
-              if (!isCancelled) {
-                setChordTimeline(timeline);
-                setChordStatus(
-                  timeline.length
-                    ? "Harmonic map ready"
-                    : "No obvious chords detected"
-                );
-                try {
-                  await cacheChordTimeline(record.md5, timeline);
-                } catch (cacheError) {
-                  console.warn("Failed to cache chord timeline", cacheError);
-                }
-              }
-            } catch (chordError) {
-              console.error("Failed to analyze chord timeline", chordError);
-              if (!isCancelled) {
-                setChordStatus("Unable to analyze chords for this input");
-              }
-            }
-          };
-
-          const idleCallback = (
-            window as Window & {
-              requestIdleCallback?: (
-                callback: IdleRequestCallback,
-                options?: IdleRequestOptions
-              ) => number;
-            }
-          ).requestIdleCallback;
-
-          if (idleCallback) {
-            idleCallback(
-              () => {
-                void runChordAnalysis();
-              },
-              { timeout: 1000 }
-            );
-          } else {
-            setTimeout(() => {
-              void runChordAnalysis();
-            }, 0);
-          }
+          setChordStatus("Harmonic analyzer ready");
+          setCurrentChord("Press Analyze");
         }
       } catch (error) {
         console.error("Failed to analyze track envelope", track.name, error);
@@ -833,6 +766,71 @@ export default function Player({ record, onClose }: PlayerProps) {
 
     setCurrentChord(activeChord);
   }, [chordStatus, chordTimeline, currentTime]);
+
+  const handleHarmonicAnalyze = useCallback(async () => {
+    if (!inputTrackId) {
+      setChordStatus("No input MP3 available for analysis");
+      setCurrentChord("No input MP3 available");
+      return;
+    }
+
+    const audioBuffer = buffersRef.current[inputTrackId];
+
+    if (!audioBuffer) {
+      setChordStatus("Input MP3 still loading...");
+      setCurrentChord("Please wait");
+      return;
+    }
+
+    setIsHarmonicAnalysisRunning(true);
+    setChordStatus("Checking cached harmony...");
+
+    try {
+      const cachedRecord = await getCachedChordTimeline(record.md5);
+
+      if (cachedRecord) {
+        const cachedTimeline = cachedRecord.timeline ?? [];
+        setChordTimeline(cachedTimeline);
+        setChordStatus(
+          cachedTimeline.length
+            ? "Harmonic map ready"
+            : "No obvious chords detected"
+        );
+        return;
+      }
+    } catch (cacheError) {
+      console.warn("Failed to load cached chord timeline", cacheError);
+    }
+
+    setChordStatus("Analyzing harmony from input MP3...");
+
+    try {
+      const timeline = await analyzeChordTimeline(audioBuffer, {
+        stableFrameCount: 2,
+        minimumConfidence: 0.16,
+        windowSeconds: 1.6,
+        hopSeconds: 0.5,
+        targetSampleRate: 11025,
+        yieldEveryFrames: 6,
+      });
+
+      setChordTimeline(timeline);
+      setChordStatus(
+        timeline.length ? "Harmonic map ready" : "No obvious chords detected"
+      );
+
+      try {
+        await cacheChordTimeline(record.md5, timeline);
+      } catch (cacheError) {
+        console.warn("Failed to cache chord timeline", cacheError);
+      }
+    } catch (chordError) {
+      console.error("Failed to analyze chord timeline", chordError);
+      setChordStatus("Unable to analyze chords for this input");
+    } finally {
+      setIsHarmonicAnalysisRunning(false);
+    }
+  }, [inputTrackId, record.md5]);
 
   const schedulePlayback = useCallback(
     async (offsetSeconds: number) => {
@@ -1113,10 +1111,11 @@ export default function Player({ record, onClose }: PlayerProps) {
     setChordTimeline([]);
     setChordStatus(
       inputTrackId
-        ? "Analyzing harmony..."
+        ? "Harmonic analyzer standing by"
         : "No input MP3 available for analysis"
     );
-    setCurrentChord(inputTrackId ? "Detecting..." : "No input MP3 available");
+    setCurrentChord(inputTrackId ? "Press Analyze" : "No input MP3 available");
+    setIsHarmonicAnalysisRunning(false);
   }, [inputTrackId]);
 
   if (!tracks.length) {
@@ -1197,6 +1196,17 @@ export default function Player({ record, onClose }: PlayerProps) {
               {chordDisplay}
             </span>
           </div>
+          <button
+            type="button"
+            onClick={() => void handleHarmonicAnalyze()}
+            disabled={!isInputTrackReady || isHarmonicAnalysisRunning}
+          >
+            {isHarmonicAnalysisRunning
+              ? "Analyzing..."
+              : chordTimeline.length
+                ? "Re-run harmony scan"
+                : "Analyze harmony"}
+          </button>
           <button
             type="button"
             onClick={() => void handlePlayPause()}
