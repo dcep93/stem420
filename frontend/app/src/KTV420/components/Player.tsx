@@ -18,6 +18,7 @@ import {
   audioEffectOptions,
   type AudioEffectType,
   createEffectNodes,
+  ensurePitchShifterWorklet,
   type EffectNodes,
   getDefaultEffectValue,
 } from "./player/audioEffects";
@@ -445,6 +446,8 @@ export default function Player({ record, onClose }: PlayerProps) {
     Object.entries(effectNodesRef.current).forEach(([id, effectNodes]) => {
       if (!activeIds.has(id)) {
         effectNodes.filter.disconnect();
+        effectNodes.phaserStages.forEach((stage) => stage.disconnect());
+        effectNodes.phaserFeedbackGain.disconnect();
         effectNodes.wetGain.disconnect();
         effectNodes.dryGain.disconnect();
         effectNodes.delay.disconnect();
@@ -494,6 +497,7 @@ export default function Player({ record, onClose }: PlayerProps) {
         }
 
         buffersRef.current[track.id] = audioBuffer;
+        await ensurePitchShifterWorklet(context);
         const gain = context.createGain();
         const effectNodes = createEffectNodes(context);
         const analyser = context.createAnalyser();
@@ -502,7 +506,6 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         gain.connect(effectNodes.filter);
         gain.connect(effectNodes.dryGain);
-        effectNodes.filter.connect(effectNodes.delay);
         effectNodes.wetGain.connect(analyser);
         effectNodes.dryGain.connect(analyser);
         analyser.connect(context.destination);

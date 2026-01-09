@@ -131,7 +131,7 @@ export const audioEffectOptions: AudioEffectOption[] = [
     value: "pitch-shift",
     label: "Pitch Shift",
     description:
-      "Shifts pitch from low to high without altering chords analysis. Move left for a deeper drop, or push right for brighter, lifted harmonics.",
+      "Shifts pitch from low to high while preserving tempo. Move left for a deeper drop, or push right for brighter, lifted harmonics.",
   },
 ];
 
@@ -147,6 +147,7 @@ const BIPOLAR_EFFECTS = new Set<AudioEffectType>([
   "bright",
   "lofi",
   "tilt-eq",
+  "band-emphasis",
   "pitch-shift",
 ]);
 
@@ -183,13 +184,15 @@ const getMixFromIntensity = (intensity: number, wetMax = 0.9, dryMin = 0.2) => {
 
 export type EffectNodes = {
   filter: BiquadFilterNode;
+  phaserStages: BiquadFilterNode[];
+  phaserFeedbackGain: GainNode;
   wetGain: GainNode;
   dryGain: GainNode;
   delay: DelayNode;
   feedbackGain: GainNode;
   shaper: WaveShaperNode;
   convolver: ConvolverNode;
-  pitchShifter: PitchShiftNode;
+  pitchShifter: AudioWorkletNode;
   lfo: OscillatorNode;
   delayLfoGain: GainNode;
   filterLfoGain: GainNode;
@@ -261,67 +264,32 @@ const createReverbImpulse = (
   return impulse;
 };
 
-type PitchShiftNode = ScriptProcessorNode & {
-  pitchRatio: number;
-  bufferL: Float32Array;
-  bufferR: Float32Array;
-  ringBufferSize: number;
-  writeIndex: number;
-  readIndex: number;
+const pitchShifterWorkletModules = new WeakMap<AudioContext, Promise<void>>();
+const pitchShifterModuleUrl = new URL(
+  "./pitchShifterProcessor.ts",
+  import.meta.url
+);
+
+export const ensurePitchShifterWorklet = (context: AudioContext) => {
+  if (!context.audioWorklet) {
+    return Promise.resolve();
+  }
+
+  const existing = pitchShifterWorkletModules.get(context);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = context.audioWorklet.addModule(pitchShifterModuleUrl);
+  pitchShifterWorkletModules.set(context, promise);
+  return promise;
 };
 
-const createPitchShiftNode = (context: AudioContext): PitchShiftNode => {
-  const node = context.createScriptProcessor(1024, 2, 2) as PitchShiftNode;
-  const ringBufferSize = 8192;
-
-  node.ringBufferSize = ringBufferSize;
-  node.bufferL = new Float32Array(ringBufferSize);
-  node.bufferR = new Float32Array(ringBufferSize);
-  node.writeIndex = Math.floor(ringBufferSize / 2);
-  node.readIndex = 0;
-  node.pitchRatio = 1;
-
-  node.onaudioprocess = (event) => {
-    const input = event.inputBuffer;
-    const output = event.outputBuffer;
-    const inputL = input.getChannelData(0);
-    const inputR =
-      input.numberOfChannels > 1 ? input.getChannelData(1) : inputL;
-    const outputL = output.getChannelData(0);
-    const outputR =
-      output.numberOfChannels > 1 ? output.getChannelData(1) : outputL;
-
-    for (let i = 0; i < inputL.length; i += 1) {
-      node.bufferL[node.writeIndex] = inputL[i] ?? 0;
-      node.bufferR[node.writeIndex] = inputR[i] ?? inputL[i] ?? 0;
-
-      const readIndexInt = Math.floor(node.readIndex);
-      const readIndexNext = (readIndexInt + 1) % node.ringBufferSize;
-      const frac = node.readIndex - readIndexInt;
-      const sampleL =
-        node.bufferL[readIndexInt]! * (1 - frac) +
-        node.bufferL[readIndexNext]! * frac;
-      const sampleR =
-        node.bufferR[readIndexInt]! * (1 - frac) +
-        node.bufferR[readIndexNext]! * frac;
-
-      outputL[i] = sampleL;
-      outputR[i] = sampleR;
-
-      node.writeIndex = (node.writeIndex + 1) % node.ringBufferSize;
-      node.readIndex = (node.readIndex + node.pitchRatio) % node.ringBufferSize;
-
-      if (node.writeIndex === Math.floor(node.readIndex)) {
-        node.readIndex =
-          (node.writeIndex + node.ringBufferSize / 2) % node.ringBufferSize;
-      }
-    }
-  };
-
-  return node;
-};
-
-const setWetRouting = (nodes: EffectNodes, useConvolver: boolean) => {
+const setWetRouting = (
+  nodes: EffectNodes,
+  useConvolver: boolean,
+  usePitchShifter: boolean
+) => {
   nodes.shaper.disconnect();
   nodes.convolver.disconnect();
   nodes.pitchShifter.disconnect();
@@ -329,7 +297,7 @@ const setWetRouting = (nodes: EffectNodes, useConvolver: boolean) => {
   if (useConvolver) {
     nodes.shaper.connect(nodes.convolver);
     nodes.convolver.connect(nodes.wetGain);
-  } else if (nodes.pitchShifter.pitchRatio !== 1) {
+  } else if (usePitchShifter) {
     nodes.shaper.connect(nodes.pitchShifter);
     nodes.pitchShifter.connect(nodes.wetGain);
   } else {
@@ -337,21 +305,54 @@ const setWetRouting = (nodes: EffectNodes, useConvolver: boolean) => {
   }
 };
 
+const connectBaseRouting = (nodes: EffectNodes, usePhaserStages: boolean) => {
+  nodes.filter.disconnect();
+  nodes.phaserStages.forEach((stage) => stage.disconnect());
+  nodes.phaserFeedbackGain.disconnect();
+
+  if (usePhaserStages) {
+    nodes.filter.connect(nodes.phaserStages[0]!);
+    for (let i = 0; i < nodes.phaserStages.length - 1; i += 1) {
+      nodes.phaserStages[i]!.connect(nodes.phaserStages[i + 1]!);
+    }
+    const lastStage = nodes.phaserStages[nodes.phaserStages.length - 1]!;
+    lastStage.connect(nodes.delay);
+    lastStage.connect(nodes.phaserFeedbackGain);
+    nodes.phaserFeedbackGain.connect(nodes.phaserStages[0]!);
+  } else {
+    nodes.filter.connect(nodes.delay);
+  }
+};
+
 export const createEffectNodes = (context: AudioContext): EffectNodes => {
   const filter = context.createBiquadFilter();
+  const phaserStages = Array.from({ length: 4 }, () =>
+    context.createBiquadFilter()
+  );
+  const phaserFeedbackGain = context.createGain();
   const wetGain = context.createGain();
   const dryGain = context.createGain();
   const delay = context.createDelay(1);
   const feedbackGain = context.createGain();
   const shaper = context.createWaveShaper();
   const convolver = context.createConvolver();
-  const pitchShifter = createPitchShiftNode(context);
+  const pitchShifter = new AudioWorkletNode(context, "pitch-shifter", {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [2],
+  });
   const lfo = context.createOscillator();
   const delayLfoGain = context.createGain();
   const filterLfoGain = context.createGain();
 
   filter.type = "bandpass";
   filter.Q.value = 3;
+  phaserStages.forEach((stage) => {
+    stage.type = "allpass";
+    stage.frequency.value = 800;
+    stage.Q.value = 0.7;
+  });
+  phaserFeedbackGain.gain.value = 0;
   wetGain.gain.value = 0;
   dryGain.gain.value = 1;
   delay.delayTime.value = 0;
@@ -372,10 +373,34 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   delayLfoGain.connect(delay.delayTime);
   lfo.connect(filterLfoGain);
   filterLfoGain.connect(filter.frequency);
+  phaserStages.forEach((stage) => {
+    filterLfoGain.connect(stage.frequency);
+  });
   lfo.start();
+
+  connectBaseRouting(
+    {
+      filter,
+      phaserStages,
+      phaserFeedbackGain,
+      wetGain,
+      dryGain,
+      delay,
+      feedbackGain,
+      shaper,
+      convolver,
+      pitchShifter,
+      lfo,
+      delayLfoGain,
+      filterLfoGain,
+    },
+    false
+  );
 
   return {
     filter,
+    phaserStages,
+    phaserFeedbackGain,
     wetGain,
     dryGain,
     delay,
@@ -389,6 +414,8 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   };
 };
 
+// How to verify: audition a steady tone plus a drum loop for chorus/phaser motion,
+// then confirm pitch shift keeps the same end-time alignment as the dry track.
 export const applyAudioEffect = ({
   context,
   nodes,
@@ -413,8 +440,12 @@ export const applyAudioEffect = ({
     nodes.filterLfoGain.gain.setTargetAtTime(0, now, 0.01);
     nodes.shaper.curve = createSaturationCurve(0);
     nodes.convolver.buffer = createNeutralImpulse(context);
-    nodes.pitchShifter.pitchRatio = 1;
-    setWetRouting(nodes, false);
+    nodes.phaserFeedbackGain.gain.setTargetAtTime(0, now, 0.01);
+    nodes.pitchShifter.parameters
+      .get("pitchRatio")
+      ?.setTargetAtTime(1, now, 0.01);
+    connectBaseRouting(nodes, false);
+    setWetRouting(nodes, false, false);
   };
 
   switch (effect) {
@@ -563,7 +594,7 @@ export const applyAudioEffect = ({
         0.01
       );
       nodes.feedbackGain.gain.setTargetAtTime(
-        0.05 + intensity * 0.35,
+        0.05 + intensity * 0.1,
         now,
         0.01
       );
@@ -579,7 +610,7 @@ export const applyAudioEffect = ({
     }
     case "reverb": {
       resetModulation();
-      setWetRouting(nodes, true);
+      setWetRouting(nodes, true, false);
       const duration = 0.4 + intensity * 3.2;
       const decay = 2 + intensity * 5;
       nodes.filter.type = "lowpass";
@@ -627,12 +658,25 @@ export const applyAudioEffect = ({
     }
     case "phaser": {
       resetModulation();
+      connectBaseRouting(nodes, true);
+      const baseFrequency = 300 + intensity * 600;
+      const sweepDepth = 200 + intensity * 1200;
       nodes.filter.type = "allpass";
-      nodes.filter.frequency.setTargetAtTime(360 + intensity * 1400, now, 0.01);
-      nodes.filter.Q.setTargetAtTime(0.5 + intensity * 3.5, now, 0.01);
+      nodes.filter.frequency.setTargetAtTime(baseFrequency, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.6 + intensity * 2.2, now, 0.01);
+      nodes.phaserStages.forEach((stage) => {
+        stage.type = "allpass";
+        stage.frequency.setTargetAtTime(baseFrequency, now, 0.01);
+        stage.Q.setTargetAtTime(0.6 + intensity * 3.2, now, 0.01);
+      });
       nodes.lfo.frequency.setTargetAtTime(0.08 + intensity * 1.1, now, 0.01);
-      nodes.filterLfoGain.gain.setTargetAtTime(90 + intensity * 900, now, 0.01);
-      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.88, 0.15);
+      nodes.filterLfoGain.gain.setTargetAtTime(sweepDepth, now, 0.01);
+      nodes.phaserFeedbackGain.gain.setTargetAtTime(
+        0.1 + intensity * 0.25,
+        now,
+        0.01
+      );
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
       setMix(wetMix, dryMix);
       break;
     }
@@ -649,8 +693,13 @@ export const applyAudioEffect = ({
     }
     case "band-emphasis": {
       resetModulation();
+      const minFrequency = 250;
+      const maxFrequency = 4000;
+      const position = clamp((direction + 1) / 2, 0, 1);
+      const frequency =
+        minFrequency * Math.pow(maxFrequency / minFrequency, position);
       nodes.filter.type = "peaking";
-      nodes.filter.frequency.setTargetAtTime(350 + intensity * 2800, now, 0.01);
+      nodes.filter.frequency.setTargetAtTime(frequency, now, 0.01);
       nodes.filter.Q.setTargetAtTime(1.2 + intensity * 9, now, 0.01);
       nodes.filter.gain.setTargetAtTime(8 + intensity * 16, now, 0.01);
       const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
@@ -679,8 +728,11 @@ export const applyAudioEffect = ({
     }
     case "pitch-shift": {
       resetModulation();
-      nodes.pitchShifter.pitchRatio = getPitchShiftPlaybackRate(value);
-      setWetRouting(nodes, false);
+      const pitchRatio = getPitchShiftPlaybackRate(value);
+      nodes.pitchShifter.parameters
+        .get("pitchRatio")
+        ?.setTargetAtTime(pitchRatio, now, 0.01);
+      setWetRouting(nodes, false, true);
       nodes.filter.type = "allpass";
       nodes.filter.frequency.setTargetAtTime(1000, now, 0.01);
       nodes.filter.Q.setTargetAtTime(0.5, now, 0.01);
