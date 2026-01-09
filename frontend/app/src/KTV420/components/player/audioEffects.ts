@@ -395,7 +395,7 @@ export const applyAudioEffect = ({
   effect,
   value,
 }: EffectParams) => {
-  const { normalized, direction, intensity, centered } = getEffectShape(
+  const { direction, intensity, centered } = getEffectShape(
     value,
     BIPOLAR_EFFECTS.has(effect)
   );
