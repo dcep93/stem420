@@ -359,7 +359,9 @@ export default function Player({ record, onClose }: PlayerProps) {
       const rate =
         effectType === "pitch-shift"
           ? getPitchShiftPlaybackRate(
-              effectValue ?? effectValuesRef.current[trackId] ?? 0
+              effectValue ??
+                effectValuesRef.current[trackId] ??
+                DEFAULT_EFFECT_VALUE
             )
           : 1;
 
@@ -481,6 +483,7 @@ export default function Player({ record, onClose }: PlayerProps) {
         effectNodes.delay.disconnect();
         effectNodes.feedbackGain.disconnect();
         effectNodes.shaper.disconnect();
+        effectNodes.convolver.disconnect();
         effectNodes.delayLfoGain.disconnect();
         effectNodes.filterLfoGain.disconnect();
         try {

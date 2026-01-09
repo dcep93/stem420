@@ -7,6 +7,8 @@ export type AudioEffectType =
   | "lofi"
   | "submerge"
   | "delay-pedal"
+  | "chorus"
+  | "reverb"
   | "envelope-filter"
   | "flange"
   | "phaser"
@@ -72,6 +74,18 @@ export const audioEffectOptions: AudioEffectOption[] = [
       "A slapback-style echo that repeats your signal with controllable depth. Dial it in for rhythmic space, or push further for cascading, atmospheric trails behind the dry sound.",
   },
   {
+    value: "chorus",
+    label: "Chorus",
+    description:
+      "Wide, detuned doubles that smear into a shimmering ensemble. Keep it near the center for barely-there width, or push the edges for seasick, swirling layers.",
+  },
+  {
+    value: "reverb",
+    label: "Reverb",
+    description:
+      "A roomy, tail-heavy wash that expands depth and space. Subtle settings add ambience, while extreme values bloom into cavernous, cinematic echoes.",
+  },
+  {
     value: "envelope-filter",
     label: "Envelope Filter",
     description:
@@ -117,12 +131,34 @@ export const audioEffectOptions: AudioEffectOption[] = [
     value: "pitch-shift",
     label: "Pitch Shift",
     description:
-      "Simulates a capo by shifting pitch upward without altering chords analysis. Higher settings move the entire track up in semitones, delivering a brighter, lifted feel.",
+      "Shifts pitch from low to high without altering chords analysis. Move left for a deeper drop, or push right for brighter, lifted harmonics.",
   },
 ];
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+
+const smoothAbs = (value: number, epsilon = 1e-4) =>
+  Math.sqrt(value * value + epsilon);
+
+const getEffectShape = (value: number) => {
+  const normalized = clamp(value, 0, 1);
+  const direction = (normalized - 0.5) * 2;
+  const intensity = direction * direction;
+
+  return { normalized, direction, intensity };
+};
+
+const getMixFromIntensity = (
+  intensity: number,
+  wetMax = 0.9,
+  dryMin = 0.2
+) => {
+  const wetMix = intensity * wetMax;
+  const dryMix = 1 - intensity * (1 - dryMin);
+
+  return { wetMix, dryMix };
+};
 
 export type EffectNodes = {
   filter: BiquadFilterNode;
@@ -131,6 +167,7 @@ export type EffectNodes = {
   delay: DelayNode;
   feedbackGain: GainNode;
   shaper: WaveShaperNode;
+  convolver: ConvolverNode;
   lfo: OscillatorNode;
   delayLfoGain: GainNode;
   filterLfoGain: GainNode;
@@ -144,10 +181,12 @@ type EffectParams = {
 };
 
 export const DEFAULT_EFFECT_VALUE = 0.5;
-export const PITCH_SHIFT_MAX_SEMITONES = 7;
+export const PITCH_SHIFT_MAX_SEMITONES = 12;
 
 export const getPitchShiftPlaybackRate = (value: number) => {
-  const semitones = clamp(value, 0, 1) * PITCH_SHIFT_MAX_SEMITONES;
+  const normalized = clamp(value, 0, 1);
+  const centered = normalized - 0.5;
+  const semitones = centered * 2 * PITCH_SHIFT_MAX_SEMITONES;
   return Math.pow(2, semitones / 12);
 };
 
@@ -171,6 +210,37 @@ const createSaturationCurve = (amount: number) => {
   return curve;
 };
 
+const createNeutralImpulse = (context: AudioContext) => {
+  const buffer = context.createBuffer(2, 1, context.sampleRate);
+  buffer.getChannelData(0)[0] = 1;
+  buffer.getChannelData(1)[0] = 1;
+  return buffer;
+};
+
+const createReverbImpulse = (
+  context: AudioContext,
+  duration: number,
+  decay: number
+) => {
+  const sampleRate = context.sampleRate;
+  const length = Math.max(1, Math.floor(sampleRate * duration));
+  const impulse = context.createBuffer(2, length, sampleRate);
+
+  for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
+    const channelData = impulse.getChannelData(channel);
+
+    for (let i = 0; i < length; i += 1) {
+      const t = i / length;
+      const envelope = Math.pow(1 - t, decay);
+      const noiseSeed = Math.sin((i + channel * 17) * 12.9898) * 43758.5453;
+      const noise = noiseSeed - Math.floor(noiseSeed);
+      channelData[i] = (noise * 2 - 1) * envelope;
+    }
+  }
+
+  return impulse;
+};
+
 export const createEffectNodes = (context: AudioContext): EffectNodes => {
   const filter = context.createBiquadFilter();
   const wetGain = context.createGain();
@@ -178,6 +248,7 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   const delay = context.createDelay(1);
   const feedbackGain = context.createGain();
   const shaper = context.createWaveShaper();
+  const convolver = context.createConvolver();
   const lfo = context.createOscillator();
   const delayLfoGain = context.createGain();
   const filterLfoGain = context.createGain();
@@ -190,6 +261,7 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   feedbackGain.gain.value = 0;
   shaper.curve = createSaturationCurve(0);
   shaper.oversample = "2x";
+  convolver.buffer = createNeutralImpulse(context);
   lfo.frequency.value = 0.4;
   delayLfoGain.gain.value = 0;
   filterLfoGain.gain.value = 0;
@@ -197,7 +269,8 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   delay.connect(feedbackGain);
   feedbackGain.connect(delay);
   delay.connect(shaper);
-  shaper.connect(wetGain);
+  shaper.connect(convolver);
+  convolver.connect(wetGain);
 
   lfo.connect(delayLfoGain);
   delayLfoGain.connect(delay.delayTime);
@@ -212,6 +285,7 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
     delay,
     feedbackGain,
     shaper,
+    convolver,
     lfo,
     delayLfoGain,
     filterLfoGain,
@@ -224,7 +298,7 @@ export const applyAudioEffect = ({
   effect,
   value,
 }: EffectParams) => {
-  const normalized = clamp(value, 0, 1);
+  const { normalized, direction, intensity } = getEffectShape(value);
   const now = context.currentTime;
 
   const setMix = (wetMix: number, dryMix: number) => {
@@ -238,6 +312,7 @@ export const applyAudioEffect = ({
     nodes.delayLfoGain.gain.setTargetAtTime(0, now, 0.01);
     nodes.filterLfoGain.gain.setTargetAtTime(0, now, 0.01);
     nodes.shaper.curve = createSaturationCurve(0);
+    nodes.convolver.buffer = createNeutralImpulse(context);
   };
 
   switch (effect) {
@@ -247,16 +322,11 @@ export const applyAudioEffect = ({
       const LOUDNESS_TOP = 0.7; // [0..1]
       const MAX_EDGE_DB = 36;
 
-      const bottomEdge = Math.pow(1 - normalized, 3.5);
-      const topEdge = Math.pow(normalized, 3.5);
-
-      const bottomDb = bottomEdge * LOUDNESS_BOTTOM * MAX_EDGE_DB;
-      const topDb = topEdge * LOUDNESS_TOP * MAX_EDGE_DB;
-      const edgeDb = Math.max(bottomDb, topDb);
+      const edgeAmount = Math.pow(smoothAbs(direction), 3.5);
+      const edgeDb = edgeAmount * (LOUDNESS_BOTTOM + LOUDNESS_TOP) * MAX_EDGE_DB;
       const edgeGain = Math.pow(10, edgeDb / 20);
 
-      const offsetFromCenter = normalized - 0.5;
-      const wahAmount = Math.abs(offsetFromCenter) * 2;
+      const wahAmount = intensity;
 
       const minFrequency = 250;
       const maxFrequency = 2600;
@@ -264,15 +334,13 @@ export const applyAudioEffect = ({
         minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
 
       const resonance = 3 + wahAmount * 10;
-      const crossfadeAngle = wahAmount * (Math.PI / 2);
-      const dryMix = Math.pow(Math.cos(crossfadeAngle), 4);
-      const wetMix = Math.sin(crossfadeAngle);
 
       nodes.filter.type = "bandpass";
       nodes.filter.frequency.setTargetAtTime(frequency, now, 0.01);
       nodes.filter.Q.setTargetAtTime(resonance, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
 
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.95, 0.2);
       setMix(wetMix * edgeGain, dryMix);
       break;
     }
@@ -281,8 +349,9 @@ export const applyAudioEffect = ({
       nodes.filter.type = "lowshelf";
       nodes.filter.frequency.setTargetAtTime(180, now, 0.01);
       nodes.filter.Q.setTargetAtTime(0.7, now, 0.01);
-      nodes.filter.gain.setTargetAtTime(6 + normalized * 12, now, 0.01);
-      setMix(0.35 + normalized * 0.65, 1 - normalized * 0.3);
+      nodes.filter.gain.setTargetAtTime(direction * 18, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.2);
+      setMix(wetMix, dryMix);
       break;
     }
     case "bright": {
@@ -290,124 +359,164 @@ export const applyAudioEffect = ({
       nodes.filter.type = "highshelf";
       nodes.filter.frequency.setTargetAtTime(3500, now, 0.01);
       nodes.filter.Q.setTargetAtTime(0.7, now, 0.01);
-      nodes.filter.gain.setTargetAtTime(4 + normalized * 12, now, 0.01);
-      setMix(0.3 + normalized * 0.6, 1 - normalized * 0.35);
+      nodes.filter.gain.setTargetAtTime(direction * 18, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.85, 0.25);
+      setMix(wetMix, dryMix);
       break;
     }
     case "warm": {
       resetModulation();
       nodes.filter.type = "lowpass";
       nodes.filter.frequency.setTargetAtTime(
-        12000 - normalized * 8000,
+        20000 - intensity * 16000,
         now,
         0.01
       );
-      nodes.filter.Q.setTargetAtTime(0.7 + normalized * 0.6, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.7 + intensity * 1.4, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(0.25 + normalized * 0.55, 1 - normalized * 0.4);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.85, 0.2);
+      setMix(wetMix, dryMix);
       break;
     }
     case "telephone": {
       resetModulation();
       nodes.filter.type = "bandpass";
-      nodes.filter.frequency.setTargetAtTime(1000, now, 0.01);
-      nodes.filter.Q.setTargetAtTime(0.9 + normalized * 6, now, 0.01);
+      nodes.filter.frequency.setTargetAtTime(
+        800 + intensity * 1400,
+        now,
+        0.01
+      );
+      nodes.filter.Q.setTargetAtTime(1.2 + intensity * 9, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(0.6 + normalized * 0.4, 1 - normalized * 0.6);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.95, 0.1);
+      setMix(wetMix, dryMix);
       break;
     }
     case "lofi": {
       resetModulation();
       nodes.filter.type = "lowpass";
       nodes.filter.frequency.setTargetAtTime(
-        12000 - normalized * 10000,
+        16000 - intensity * 14000,
         now,
         0.01
       );
-      nodes.filter.Q.setTargetAtTime(0.5 + normalized * 0.9, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.6 + intensity * 2.4, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(0.45 + normalized * 0.45, 1 - normalized * 0.5);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
+      setMix(wetMix, dryMix);
       break;
     }
     case "submerge": {
       resetModulation();
       nodes.filter.type = "lowpass";
       nodes.filter.frequency.setTargetAtTime(
-        2000 - normalized * 1500,
+        3200 - intensity * 2700,
         now,
         0.01
       );
-      nodes.filter.Q.setTargetAtTime(0.8 + normalized * 1.2, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.9 + intensity * 2.2, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(0.55 + normalized * 0.35, 1 - normalized * 0.5);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.95, 0.1);
+      setMix(wetMix, dryMix);
       break;
     }
     case "delay-pedal": {
       resetModulation();
       nodes.filter.type = "lowpass";
-      nodes.filter.frequency.setTargetAtTime(6000, now, 0.01);
-      nodes.filter.Q.setTargetAtTime(0.6, now, 0.01);
-      nodes.delay.delayTime.setTargetAtTime(0.18 + normalized * 0.27, now, 0.01);
-      nodes.feedbackGain.gain.setTargetAtTime(0.2 + normalized * 0.4, now, 0.01);
-      setMix(0.35 + normalized * 0.45, 1 - normalized * 0.4);
+      nodes.filter.frequency.setTargetAtTime(7000 - intensity * 2500, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.7 + intensity * 0.6, now, 0.01);
+      nodes.delay.delayTime.setTargetAtTime(0.12 + intensity * 0.55, now, 0.01);
+      nodes.feedbackGain.gain.setTargetAtTime(0.15 + intensity * 0.7, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.95, 0.1);
+      setMix(wetMix, dryMix);
+      break;
+    }
+    case "chorus": {
+      resetModulation();
+      nodes.filter.type = "lowpass";
+      nodes.filter.frequency.setTargetAtTime(14000 - intensity * 5000, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.7 + intensity * 0.8, now, 0.01);
+      nodes.delay.delayTime.setTargetAtTime(0.015 + intensity * 0.04, now, 0.01);
+      nodes.feedbackGain.gain.setTargetAtTime(0.05 + intensity * 0.35, now, 0.01);
+      nodes.lfo.frequency.setTargetAtTime(0.12 + intensity * 0.9, now, 0.01);
+      nodes.delayLfoGain.gain.setTargetAtTime(0.002 + intensity * 0.018, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.85, 0.25);
+      setMix(wetMix, dryMix);
+      break;
+    }
+    case "reverb": {
+      resetModulation();
+      const duration = 0.4 + intensity * 3.2;
+      const decay = 2 + intensity * 5;
+      nodes.filter.type = "lowpass";
+      nodes.filter.frequency.setTargetAtTime(16000 - intensity * 9000, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.6 + intensity * 0.8, now, 0.01);
+      nodes.convolver.buffer = createReverbImpulse(context, duration, decay);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.95, 0.15);
+      setMix(wetMix, dryMix);
       break;
     }
     case "envelope-filter": {
       resetModulation();
       nodes.filter.type = "bandpass";
       nodes.filter.frequency.setTargetAtTime(
-        400 + normalized * 1800,
+        350 + intensity * 2300,
         now,
         0.01
       );
-      nodes.filter.Q.setTargetAtTime(1.2 + normalized * 6, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(1.1 + intensity * 9.5, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(0.5 + normalized * 0.45, 1 - normalized * 0.5);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
+      setMix(wetMix, dryMix);
       break;
     }
     case "flange": {
       resetModulation();
       nodes.filter.type = "allpass";
-      nodes.filter.frequency.setTargetAtTime(800, now, 0.01);
-      nodes.filter.Q.setTargetAtTime(0.7, now, 0.01);
-      nodes.delay.delayTime.setTargetAtTime(0.004 + normalized * 0.008, now, 0.01);
-      nodes.feedbackGain.gain.setTargetAtTime(0.15 + normalized * 0.35, now, 0.01);
-      nodes.lfo.frequency.setTargetAtTime(0.2 + normalized * 0.8, now, 0.01);
-      nodes.delayLfoGain.gain.setTargetAtTime(0.001 + normalized * 0.004, now, 0.01);
-      setMix(0.35 + normalized * 0.45, 1 - normalized * 0.4);
+      nodes.filter.frequency.setTargetAtTime(900, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.7 + intensity * 0.9, now, 0.01);
+      nodes.delay.delayTime.setTargetAtTime(0.002 + intensity * 0.012, now, 0.01);
+      nodes.feedbackGain.gain.setTargetAtTime(0.1 + intensity * 0.7, now, 0.01);
+      nodes.lfo.frequency.setTargetAtTime(0.08 + intensity * 1.2, now, 0.01);
+      nodes.delayLfoGain.gain.setTargetAtTime(0.0006 + intensity * 0.007, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.1);
+      setMix(wetMix, dryMix);
       break;
     }
     case "phaser": {
       resetModulation();
       nodes.filter.type = "allpass";
-      nodes.filter.frequency.setTargetAtTime(450 + normalized * 750, now, 0.01);
-      nodes.filter.Q.setTargetAtTime(0.6 + normalized * 2.4, now, 0.01);
-      nodes.lfo.frequency.setTargetAtTime(0.12 + normalized * 0.5, now, 0.01);
-      nodes.filterLfoGain.gain.setTargetAtTime(140 + normalized * 460, now, 0.01);
-      setMix(0.4 + normalized * 0.45, 1 - normalized * 0.45);
+      nodes.filter.frequency.setTargetAtTime(360 + intensity * 1400, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(0.5 + intensity * 3.5, now, 0.01);
+      nodes.lfo.frequency.setTargetAtTime(0.08 + intensity * 1.1, now, 0.01);
+      nodes.filterLfoGain.gain.setTargetAtTime(90 + intensity * 900, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.88, 0.15);
+      setMix(wetMix, dryMix);
       break;
     }
     case "tilt-eq": {
       resetModulation();
-      const tilt = (normalized - 0.5) * 2;
+      const tilt = direction;
       nodes.filter.type = "highshelf";
       nodes.filter.frequency.setTargetAtTime(1200, now, 0.01);
       nodes.filter.Q.setTargetAtTime(0.7, now, 0.01);
-      nodes.filter.gain.setTargetAtTime(tilt * 10, now, 0.01);
-      setMix(0.4 + Math.abs(tilt) * 0.4, 1 - Math.abs(tilt) * 0.35);
+      nodes.filter.gain.setTargetAtTime(tilt * 18, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.85, 0.25);
+      setMix(wetMix, dryMix);
       break;
     }
     case "band-emphasis": {
       resetModulation();
       nodes.filter.type = "peaking";
       nodes.filter.frequency.setTargetAtTime(
-        500 + normalized * 2200,
+        350 + intensity * 2800,
         now,
         0.01
       );
-      nodes.filter.Q.setTargetAtTime(1.5 + normalized * 4.5, now, 0.01);
-      nodes.filter.gain.setTargetAtTime(6 + normalized * 10, now, 0.01);
-      setMix(0.45 + normalized * 0.45, 1 - normalized * 0.4);
+      nodes.filter.Q.setTargetAtTime(1.2 + intensity * 9, now, 0.01);
+      nodes.filter.gain.setTargetAtTime(8 + intensity * 16, now, 0.01);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
+      setMix(wetMix, dryMix);
       break;
     }
     case "saturation": {
@@ -415,21 +524,23 @@ export const applyAudioEffect = ({
       nodes.filter.type = "lowpass";
       nodes.filter.frequency.setTargetAtTime(12000, now, 0.01);
       nodes.filter.Q.setTargetAtTime(0.7, now, 0.01);
-      nodes.shaper.curve = createSaturationCurve(normalized);
-      setMix(0.4 + normalized * 0.5, 1 - normalized * 0.4);
+      nodes.shaper.curve = createSaturationCurve(intensity);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.25);
+      setMix(wetMix, dryMix);
       break;
     }
     case "formant-filter": {
       resetModulation();
       nodes.filter.type = "bandpass";
       nodes.filter.frequency.setTargetAtTime(
-        500 + normalized * 700,
+        350 + intensity * 1200,
         now,
         0.01
       );
-      nodes.filter.Q.setTargetAtTime(6 + normalized * 8, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(5 + intensity * 12, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(0.55 + normalized * 0.35, 1 - normalized * 0.5);
+      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
+      setMix(wetMix, dryMix);
       break;
     }
     case "pitch-shift": {
