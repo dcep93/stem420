@@ -746,6 +746,7 @@ export default function Player({ record, onClose }: PlayerProps) {
             sampleRate,
             currentTime: playbackTime,
             duration: duration || 0,
+            isPlaying,
           });
         } catch (error) {
           console.error("Failed to draw visualizer", track.name, error);

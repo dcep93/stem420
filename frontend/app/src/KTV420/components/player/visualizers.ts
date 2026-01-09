@@ -38,6 +38,7 @@ type KaleidoscopeState = {
   rotationTarget: number;
   rotationSpeed: number;
   lastTime: number;
+  energy: number;
   image: HTMLImageElement;
   pattern: CanvasPattern | null;
   onMouseMove?: (event: MouseEvent) => void;
@@ -58,6 +59,7 @@ export type VisualizerInputs = {
   currentTime: number;
   duration: number;
   visualizerType: VisualizerType;
+  isPlaying: boolean;
   amplitudeEnvelope?: number[];
   amplitudeMaximum?: number;
   sampleRate: number;
@@ -69,6 +71,7 @@ export function drawVisualizer({
   currentTime,
   duration,
   visualizerType,
+  isPlaying,
   amplitudeEnvelope,
   amplitudeMaximum = 1,
   sampleRate,
@@ -1490,6 +1493,7 @@ export function drawVisualizer({
         rotationTarget: 0,
         rotationSpeed: 0.002,
         lastTime: currentTime,
+        energy: 0,
         image,
         pattern: null,
       };
@@ -1525,11 +1529,43 @@ export function drawVisualizer({
         return;
       }
 
-      const energy = 1;
+      let energy = 0;
 
-      const deltaTime = energy * Math.max(0, currentTime - cached.lastTime);
+      if (amplitudeEnvelope && amplitudeEnvelope.length) {
+        const index = currentTime / AMPLITUDE_WINDOW_SECONDS;
+        const baseIndex = Math.floor(index);
+        const nextIndex = Math.min(baseIndex + 1, amplitudeEnvelope.length - 1);
+        const fraction = index - baseIndex;
+        const first =
+          amplitudeEnvelope[
+            Math.max(0, Math.min(baseIndex, amplitudeEnvelope.length - 1))
+          ] ?? 0;
+        const second = amplitudeEnvelope[nextIndex] ?? first;
+        const amplitude = first + (second - first) * fraction;
+        energy = amplitudeMaximum > 0 ? amplitude / amplitudeMaximum : 0;
+      } else {
+        const bufferLength = analyser.frequencyBinCount;
+        const frequencyData = new Uint8Array(bufferLength);
+        analyser.getByteFrequencyData(frequencyData);
+
+        if (bufferLength > 0) {
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            sum += frequencyData[i] ?? 0;
+          }
+          energy = sum / (bufferLength * 255);
+        }
+      }
+
+      const deltaTime = Math.max(0, currentTime - cached.lastTime);
       cached.lastTime = currentTime;
-      cached.rotationTarget -= cached.rotationSpeed * deltaTime * 60;
+      if (!isPlaying || deltaTime === 0 || !Number.isFinite(energy)) {
+        energy = 0;
+      }
+      const clampedEnergy = Math.max(0, Math.min(1, energy));
+      cached.energy += (clampedEnergy - cached.energy) * 0.1;
+      const weightedDeltaTime = Math.min(1, deltaTime * cached.energy);
+      cached.rotationTarget -= cached.rotationSpeed * weightedDeltaTime * 60;
 
       const ease = energy * KALEIDOSCOPE_EASE;
 
