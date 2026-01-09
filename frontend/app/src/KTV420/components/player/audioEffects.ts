@@ -143,8 +143,11 @@ const smoothAbs = (value: number, epsilon = 1e-4) =>
 
 const getEffectShape = (value: number) => {
   const normalized = clamp(value, 0, 1);
-  const direction = (normalized - 0.5) * 2;
-  const intensity = direction * direction;
+  const centered = normalized - 0.5;
+  const positive = Math.pow(clamp(centered, 0, 0.5) / 0.5, 0.65);
+  const negative = Math.pow(clamp(-centered, 0, 0.5) / 0.5, 0.85);
+  const direction = centered >= 0 ? positive : -negative;
+  const intensity = centered >= 0 ? positive : negative;
 
   return { normalized, direction, intensity };
 };
@@ -168,6 +171,7 @@ export type EffectNodes = {
   feedbackGain: GainNode;
   shaper: WaveShaperNode;
   convolver: ConvolverNode;
+  pitchShifter: PitchShiftNode;
   lfo: OscillatorNode;
   delayLfoGain: GainNode;
   filterLfoGain: GainNode;
@@ -181,7 +185,7 @@ type EffectParams = {
 };
 
 export const DEFAULT_EFFECT_VALUE = 0.5;
-export const PITCH_SHIFT_MAX_SEMITONES = 12;
+export const PITCH_SHIFT_MAX_SEMITONES = 24;
 
 export const getPitchShiftPlaybackRate = (value: number) => {
   const normalized = clamp(value, 0, 1);
@@ -241,6 +245,82 @@ const createReverbImpulse = (
   return impulse;
 };
 
+type PitchShiftNode = ScriptProcessorNode & {
+  pitchRatio: number;
+  bufferL: Float32Array;
+  bufferR: Float32Array;
+  ringBufferSize: number;
+  writeIndex: number;
+  readIndex: number;
+};
+
+const createPitchShiftNode = (context: AudioContext): PitchShiftNode => {
+  const node = context.createScriptProcessor(1024, 2, 2) as PitchShiftNode;
+  const ringBufferSize = 8192;
+
+  node.ringBufferSize = ringBufferSize;
+  node.bufferL = new Float32Array(ringBufferSize);
+  node.bufferR = new Float32Array(ringBufferSize);
+  node.writeIndex = Math.floor(ringBufferSize / 2);
+  node.readIndex = 0;
+  node.pitchRatio = 1;
+
+  node.onaudioprocess = (event) => {
+    const input = event.inputBuffer;
+    const output = event.outputBuffer;
+    const inputL = input.getChannelData(0);
+    const inputR =
+      input.numberOfChannels > 1 ? input.getChannelData(1) : inputL;
+    const outputL = output.getChannelData(0);
+    const outputR =
+      output.numberOfChannels > 1 ? output.getChannelData(1) : outputL;
+
+    for (let i = 0; i < inputL.length; i += 1) {
+      node.bufferL[node.writeIndex] = inputL[i] ?? 0;
+      node.bufferR[node.writeIndex] = inputR[i] ?? inputL[i] ?? 0;
+
+      const readIndexInt = Math.floor(node.readIndex);
+      const readIndexNext = (readIndexInt + 1) % node.ringBufferSize;
+      const frac = node.readIndex - readIndexInt;
+      const sampleL =
+        node.bufferL[readIndexInt]! * (1 - frac) +
+        node.bufferL[readIndexNext]! * frac;
+      const sampleR =
+        node.bufferR[readIndexInt]! * (1 - frac) +
+        node.bufferR[readIndexNext]! * frac;
+
+      outputL[i] = sampleL;
+      outputR[i] = sampleR;
+
+      node.writeIndex = (node.writeIndex + 1) % node.ringBufferSize;
+      node.readIndex = (node.readIndex + node.pitchRatio) % node.ringBufferSize;
+
+      if (node.writeIndex === Math.floor(node.readIndex)) {
+        node.readIndex =
+          (node.writeIndex + node.ringBufferSize / 2) % node.ringBufferSize;
+      }
+    }
+  };
+
+  return node;
+};
+
+const setWetRouting = (nodes: EffectNodes, useConvolver: boolean) => {
+  nodes.shaper.disconnect();
+  nodes.convolver.disconnect();
+  nodes.pitchShifter.disconnect();
+
+  if (useConvolver) {
+    nodes.shaper.connect(nodes.convolver);
+    nodes.convolver.connect(nodes.wetGain);
+  } else if (nodes.pitchShifter.pitchRatio !== 1) {
+    nodes.shaper.connect(nodes.pitchShifter);
+    nodes.pitchShifter.connect(nodes.wetGain);
+  } else {
+    nodes.shaper.connect(nodes.wetGain);
+  }
+};
+
 export const createEffectNodes = (context: AudioContext): EffectNodes => {
   const filter = context.createBiquadFilter();
   const wetGain = context.createGain();
@@ -249,6 +329,7 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   const feedbackGain = context.createGain();
   const shaper = context.createWaveShaper();
   const convolver = context.createConvolver();
+  const pitchShifter = createPitchShiftNode(context);
   const lfo = context.createOscillator();
   const delayLfoGain = context.createGain();
   const filterLfoGain = context.createGain();
@@ -269,8 +350,7 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
   delay.connect(feedbackGain);
   feedbackGain.connect(delay);
   delay.connect(shaper);
-  shaper.connect(convolver);
-  convolver.connect(wetGain);
+  shaper.connect(wetGain);
 
   lfo.connect(delayLfoGain);
   delayLfoGain.connect(delay.delayTime);
@@ -286,6 +366,7 @@ export const createEffectNodes = (context: AudioContext): EffectNodes => {
     feedbackGain,
     shaper,
     convolver,
+    pitchShifter,
     lfo,
     delayLfoGain,
     filterLfoGain,
@@ -313,6 +394,8 @@ export const applyAudioEffect = ({
     nodes.filterLfoGain.gain.setTargetAtTime(0, now, 0.01);
     nodes.shaper.curve = createSaturationCurve(0);
     nodes.convolver.buffer = createNeutralImpulse(context);
+    nodes.pitchShifter.pitchRatio = 1;
+    setWetRouting(nodes, false);
   };
 
   switch (effect) {
@@ -394,15 +477,22 @@ export const applyAudioEffect = ({
     }
     case "lofi": {
       resetModulation();
+      const isPositive = direction >= 0;
+      const cutoff = isPositive
+        ? 16000 - intensity * 15000
+        : 16000 - intensity * 9000;
+      const resonance = isPositive
+        ? 0.6 + intensity * 2.4
+        : 0.5 + intensity * 1.2;
       nodes.filter.type = "lowpass";
-      nodes.filter.frequency.setTargetAtTime(
-        16000 - intensity * 14000,
-        now,
-        0.01
-      );
-      nodes.filter.Q.setTargetAtTime(0.6 + intensity * 2.4, now, 0.01);
+      nodes.filter.frequency.setTargetAtTime(cutoff, now, 0.01);
+      nodes.filter.Q.setTargetAtTime(resonance, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      const { wetMix, dryMix } = getMixFromIntensity(intensity, 0.9, 0.15);
+      const { wetMix, dryMix } = getMixFromIntensity(
+        intensity,
+        isPositive ? 0.95 : 0.75,
+        0.15
+      );
       setMix(wetMix, dryMix);
       break;
     }
@@ -446,6 +536,7 @@ export const applyAudioEffect = ({
     }
     case "reverb": {
       resetModulation();
+      setWetRouting(nodes, true);
       const duration = 0.4 + intensity * 3.2;
       const decay = 2 + intensity * 5;
       nodes.filter.type = "lowpass";
@@ -545,11 +636,13 @@ export const applyAudioEffect = ({
     }
     case "pitch-shift": {
       resetModulation();
+      nodes.pitchShifter.pitchRatio = getPitchShiftPlaybackRate(value);
+      setWetRouting(nodes, false);
       nodes.filter.type = "allpass";
       nodes.filter.frequency.setTargetAtTime(1000, now, 0.01);
       nodes.filter.Q.setTargetAtTime(0.5, now, 0.01);
       nodes.filter.gain.setTargetAtTime(0, now, 0.01);
-      setMix(0, 1);
+      setMix(1, 0);
       break;
     }
     default: {

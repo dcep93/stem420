@@ -22,7 +22,6 @@ import {
   audioEffectOptions,
   createEffectNodes,
   type EffectNodes,
-  getPitchShiftPlaybackRate,
   type AudioEffectType,
   DEFAULT_EFFECT_VALUE,
 } from "./player/audioEffects";
@@ -348,7 +347,7 @@ export default function Player({ record, onClose }: PlayerProps) {
   );
 
   const applyPlaybackRateForTrack = useCallback(
-    (trackId: string, effectType: AudioEffectType, effectValue?: number) => {
+    (trackId: string, _effectType: AudioEffectType, _effectValue?: number) => {
       const source = sourcesRef.current[trackId];
       const context = audioCtxRef.current ?? ensureAudioContext();
 
@@ -356,29 +355,13 @@ export default function Player({ record, onClose }: PlayerProps) {
         return;
       }
 
-      const rate =
-        effectType === "pitch-shift"
-          ? getPitchShiftPlaybackRate(
-              effectValue ??
-                effectValuesRef.current[trackId] ??
-                DEFAULT_EFFECT_VALUE
-            )
-          : 1;
-
-      source.playbackRate.setTargetAtTime(rate, context.currentTime, 0.02);
+      source.playbackRate.setTargetAtTime(1, context.currentTime, 0.02);
     },
     [ensureAudioContext]
   );
 
   const getPlaybackRateForTrack = useCallback((trackId: string) => {
-    const effectType = effectTypesRef.current[trackId] ?? "wah";
-    if (effectType !== "pitch-shift") {
-      return 1;
-    }
-
-    return getPitchShiftPlaybackRate(
-      effectValuesRef.current[trackId] ?? DEFAULT_EFFECT_VALUE
-    );
+    return 1;
   }, []);
 
   const currentPlaybackTime = useCallback(() => {
@@ -484,6 +467,7 @@ export default function Player({ record, onClose }: PlayerProps) {
         effectNodes.feedbackGain.disconnect();
         effectNodes.shaper.disconnect();
         effectNodes.convolver.disconnect();
+        effectNodes.pitchShifter.disconnect();
         effectNodes.delayLfoGain.disconnect();
         effectNodes.filterLfoGain.disconnect();
         try {
