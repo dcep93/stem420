@@ -1456,18 +1456,158 @@ export function drawVisualizer({
     context.globalCompositeOperation = "source-over";
     context.restore();
   } else if (visualizerType === "highway") {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+    const slice = Math.max(1, Math.floor(bufferLength * 0.15));
+    const midSlice = Math.max(slice + 1, Math.floor(bufferLength * 0.5));
+    const averageRange = (start: number, end: number) => {
+      let sum = 0;
+      for (let i = start; i < end; i++) {
+        sum += dataArray[i] ?? 0;
+      }
+      return end > start ? sum / (end - start) / 255 : 0;
+    };
+    const bassEnergy = averageRange(0, slice);
+    const midEnergy = averageRange(slice, midSlice);
+    const highEnergy = averageRange(midSlice, bufferLength);
+    const totalEnergy = (bassEnergy + midEnergy + highEnergy) / 3;
+    const evolveProgress = Math.min(1, currentTime / 18);
+    const energyBoost = 0.35 + totalEnergy * 0.5;
+    const evolution = (0.18 + evolveProgress * 0.82) * energyBoost;
+
+    const hashFloat = (seed: number) => {
+      const x = Math.sin(seed * 91.123 + seed * seed * 0.017) * 10000;
+      return x - Math.floor(x);
+    };
+    const lerp = (start: number, end: number, t: number) => start + (end - start) * t;
+    const blendHue = (from: number, to: number, t: number) => {
+      const delta = ((to - from + 540) % 360) - 180;
+      return (from + delta * t + 360) % 360;
+    };
+    const minShift = 6;
+    const maxShift = 9;
+    const baseWindow = 8;
+    const segmentIndex = Math.floor(currentTime / baseWindow);
+    const segmentSeed = segmentIndex + 1;
+    const segmentDuration = lerp(minShift, maxShift, hashFloat(segmentSeed * 11.3));
+    const segmentProgress = Math.min(1, (currentTime - segmentIndex * baseWindow) / segmentDuration);
+    const snapChance = hashFloat(segmentSeed * 9.1);
+    const snapMix = snapChance > 0.86;
+    const easedProgress = snapMix
+      ? segmentProgress > 0.92
+        ? 1
+        : segmentProgress * 0.85
+      : segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
+    const baseTargetA = (190 + hashFloat(segmentSeed * 2.7) * 140) % 360;
+    const baseTargetB = (190 + hashFloat((segmentSeed + 1) * 2.7) * 140) % 360;
+    const accentTargetA = (20 + hashFloat(segmentSeed * 5.4) * 120) % 360;
+    const accentTargetB = (20 + hashFloat((segmentSeed + 1) * 5.4) * 120) % 360;
+    const hueWobble = Math.sin(currentTime * 0.25 + segmentSeed) * 6;
+    const baseHue = blendHue(baseTargetA, baseTargetB, easedProgress) + hueWobble;
+    const accentHue = blendHue(accentTargetA, accentTargetB, easedProgress) + hueWobble * 0.6;
+    const saturationLift = 10 + hashFloat(segmentSeed * 7.7) * 12;
+    const lightnessLift = 6 + hashFloat(segmentSeed * 8.8) * 6;
+
+    const hexToRgb = (hex: string) => {
+      const value = hex.replace("#", "");
+      const r = Number.parseInt(value.slice(0, 2), 16);
+      const g = Number.parseInt(value.slice(2, 4), 16);
+      const b = Number.parseInt(value.slice(4, 6), 16);
+      return { r, g, b };
+    };
+    const hslToRgb = (hue: number, saturation: number, lightness: number) => {
+      const h = ((hue % 360) + 360) % 360;
+      const s = Math.max(0, Math.min(1, saturation / 100));
+      const l = Math.max(0, Math.min(1, lightness / 100));
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = l - c / 2;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      if (h < 60) {
+        r = c;
+        g = x;
+      } else if (h < 120) {
+        r = x;
+        g = c;
+      } else if (h < 180) {
+        g = c;
+        b = x;
+      } else if (h < 240) {
+        g = x;
+        b = c;
+      } else if (h < 300) {
+        r = x;
+        b = c;
+      } else {
+        r = c;
+        b = x;
+      }
+      return {
+        r: Math.round((r + m) * 255),
+        g: Math.round((g + m) * 255),
+        b: Math.round((b + m) * 255),
+      };
+    };
+    const mixColor = (fromHex: string, toRgb: { r: number; g: number; b: number }, t: number) => {
+      const from = hexToRgb(fromHex);
+      const mix = (a: number, b: number) => Math.round(a + (b - a) * t);
+      return `rgb(${mix(from.r, toRgb.r)}, ${mix(from.g, toRgb.g)}, ${mix(from.b, toRgb.b)})`;
+    };
+
     const horizon = height * 0.52;
     const skyGradient = context.createLinearGradient(0, 0, 0, horizon);
-    skyGradient.addColorStop(0, "#2f7dac");
-    skyGradient.addColorStop(1, "#1b5f8b");
+    skyGradient.addColorStop(
+      0,
+      mixColor(
+        "#2f7dac",
+        hslToRgb(baseHue, 82 + saturationLift, 46 + lightnessLift + highEnergy * 10),
+        evolution * 0.9
+      )
+    );
+    skyGradient.addColorStop(
+      1,
+      mixColor(
+        "#1b5f8b",
+        hslToRgb((baseHue + 20) % 360, 78 + saturationLift, 34 + lightnessLift + midEnergy * 8),
+        evolution * 0.9
+      )
+    );
     context.fillStyle = skyGradient;
     context.fillRect(0, 0, width, horizon);
 
     const sunCenterX = width * 0.5;
     const sunCenterY = horizon + height * 0.02;
     const sunRadius = Math.min(width, height) * 0.7;
-    const sunBands = ["#f4c255", "#e79a38", "#d46d2b", "#c95a24"];
-    context.fillStyle = "#f4c255";
+    const sunBands = [
+      mixColor(
+        "#f4c255",
+        hslToRgb((accentHue + 8) % 360, 92, 66 + bassEnergy * 8),
+        evolution * 0.88
+      ),
+      mixColor(
+        "#e79a38",
+        hslToRgb((accentHue + 16) % 360, 92, 58 + bassEnergy * 6),
+        evolution * 0.88
+      ),
+      mixColor(
+        "#d46d2b",
+        hslToRgb((accentHue + 28) % 360, 92, 52 + bassEnergy * 5),
+        evolution * 0.88
+      ),
+      mixColor(
+        "#c95a24",
+        hslToRgb((accentHue + 40) % 360, 92, 46 + bassEnergy * 4),
+        evolution * 0.88
+      ),
+    ];
+    context.fillStyle = mixColor(
+      "#f4c255",
+      hslToRgb(accentHue, 94, 64 + bassEnergy * 10),
+      evolution
+    );
     context.beginPath();
     context.arc(sunCenterX, sunCenterY, sunRadius * 0.64, Math.PI * 1.08, Math.PI * 1.92);
     context.lineTo(sunCenterX + sunRadius * 0.64, sunCenterY);
@@ -1495,15 +1635,41 @@ export function drawVisualizer({
       context.lineWidth = 2;
       context.stroke();
     };
-    drawCloud(width * 0.18, height * 0.24, 0.4, "#f7f3ea");
-    drawCloud(width * 0.28, height * 0.34, 0.32, "#f2eee5");
-    drawCloud(width * 0.82, height * 0.26, 0.46, "#f7f1e7");
+    drawCloud(
+      width * 0.18,
+      height * 0.24,
+      0.4,
+      mixColor("#f7f3ea", hslToRgb((baseHue + 12) % 360, 34, 90), evolution * 0.6)
+    );
+    drawCloud(
+      width * 0.28,
+      height * 0.34,
+      0.32,
+      mixColor("#f2eee5", hslToRgb((baseHue + 20) % 360, 34, 86), evolution * 0.6)
+    );
+    drawCloud(
+      width * 0.82,
+      height * 0.26,
+      0.46,
+      mixColor("#f7f1e7", hslToRgb((baseHue + 10) % 360, 36, 88), evolution * 0.6)
+    );
 
     const horizonBandHeight = height * 0.04;
-    context.fillStyle = "#e1b93f";
+    context.fillStyle = mixColor(
+      "#e1b93f",
+      hslToRgb((accentHue + 12) % 360, 88, 56 + midEnergy * 10),
+      evolution * 0.9
+    );
     context.fillRect(0, horizon - horizonBandHeight, width, horizonBandHeight);
 
-    const fieldBands = ["#e8c56f", "#e0bc64", "#3b8b3d", "#e2c06a", "#d8b75f", "#e8c56f"];
+    const fieldBands = [
+      mixColor("#e8c56f", hslToRgb((baseHue + 8) % 360, 78, 62 + bassEnergy * 10), evolution),
+      mixColor("#e0bc64", hslToRgb((baseHue + 16) % 360, 76, 58 + midEnergy * 10), evolution),
+      mixColor("#3b8b3d", hslToRgb((baseHue + 80) % 360, 64, 40 + highEnergy * 10), evolution * 0.95),
+      mixColor("#e2c06a", hslToRgb((baseHue + 12) % 360, 76, 56 + midEnergy * 10), evolution),
+      mixColor("#d8b75f", hslToRgb((baseHue + 4) % 360, 74, 54 + bassEnergy * 10), evolution),
+      mixColor("#e8c56f", hslToRgb((baseHue + 20) % 360, 78, 60 + totalEnergy * 10), evolution),
+    ];
     const fieldTop = horizon;
     const fieldHeight = height - fieldTop;
     const bandHeight = fieldHeight / fieldBands.length;
@@ -1514,7 +1680,11 @@ export function drawVisualizer({
 
     const roadBottom = width * 0.64;
     const roadTop = width * 0.12;
-    context.fillStyle = "#1b1b1c";
+    context.fillStyle = mixColor(
+      "#1b1b1c",
+      hslToRgb((baseHue + 200) % 360, 20, 18 + highEnergy * 10),
+      evolution * 0.75
+    );
     context.beginPath();
     context.moveTo(width / 2 - roadBottom, height);
     context.lineTo(width / 2 + roadBottom, height);
@@ -1549,7 +1719,12 @@ export function drawVisualizer({
       }
     }
 
-    const stripeColors = ["#e6c46b", "#d9b75f", "#cfae56", "#b3a056"];
+    const stripeColors = [
+      mixColor("#e6c46b", hslToRgb((accentHue + 8) % 360, 82, 62 + bassEnergy * 12), evolution),
+      mixColor("#d9b75f", hslToRgb((accentHue + 14) % 360, 80, 56 + midEnergy * 12), evolution),
+      mixColor("#cfae56", hslToRgb((accentHue + 20) % 360, 78, 52 + highEnergy * 12), evolution),
+      mixColor("#b3a056", hslToRgb((accentHue + 26) % 360, 76, 50 + totalEnergy * 12), evolution),
+    ];
     const stripeCount = 10;
     for (let i = 0; i < stripeCount; i++) {
       const t = i / (stripeCount - 1);
