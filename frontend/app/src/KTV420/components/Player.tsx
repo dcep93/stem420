@@ -8,7 +8,11 @@ import {
   useState,
 } from "react";
 
-import { removeCachedOutputs } from "../indexedDbClient";
+import {
+  cacheChordTimeline,
+  getCachedChordTimeline,
+  removeCachedOutputs,
+} from "../indexedDbClient";
 import {
   analyzeChordTimeline,
   type ChordSnapshot,
@@ -605,6 +609,25 @@ export default function Player({ record, onClose }: PlayerProps) {
         });
 
         if (track.id === inputTrackId) {
+          setChordStatus("Checking cached harmony...");
+
+          try {
+            const cachedRecord = await getCachedChordTimeline(record.md5);
+
+            if (!isCancelled && cachedRecord) {
+              const cachedTimeline = cachedRecord.timeline ?? [];
+              setChordTimeline(cachedTimeline);
+              setChordStatus(
+                cachedTimeline.length
+                  ? "Harmonic map ready"
+                  : "No obvious chords detected"
+              );
+              return;
+            }
+          } catch (cacheError) {
+            console.warn("Failed to load cached chord timeline", cacheError);
+          }
+
           setChordStatus("Analyzing harmony from input MP3...");
 
           const runChordAnalysis = async () => {
@@ -629,6 +652,11 @@ export default function Player({ record, onClose }: PlayerProps) {
                     ? "Harmonic map ready"
                     : "No obvious chords detected"
                 );
+                try {
+                  await cacheChordTimeline(record.md5, timeline);
+                } catch (cacheError) {
+                  console.warn("Failed to cache chord timeline", cacheError);
+                }
               }
             } catch (chordError) {
               console.error("Failed to analyze chord timeline", chordError);
@@ -683,6 +711,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     ensureAudioContext,
     getEffectiveVolumeFromRefs,
     inputTrackId,
+    record.md5,
     tracks,
   ]);
 
