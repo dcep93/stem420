@@ -737,6 +737,7 @@ export default function Player({ record, onClose }: PlayerProps) {
         }
 
         try {
+          const effectiveVolume = getEffectiveVolumeFromRefs(track.id);
           drawVisualizer({
             analyser,
             canvas,
@@ -747,6 +748,7 @@ export default function Player({ record, onClose }: PlayerProps) {
             currentTime: playbackTime,
             duration: duration || 0,
             isPlaying,
+            effectiveVolume,
           });
         } catch (error) {
           console.error("Failed to draw visualizer", track.name, error);
@@ -768,6 +770,8 @@ export default function Player({ record, onClose }: PlayerProps) {
     amplitudeMaximums,
     currentPlaybackTime,
     duration,
+    getEffectiveVolumeFromRefs,
+    isPlaying,
     tracks,
     visualizerType,
   ]);

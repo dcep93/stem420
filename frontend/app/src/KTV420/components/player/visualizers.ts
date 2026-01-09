@@ -9,6 +9,8 @@ const cachedPerformanceMode = true;
 const HALF_PI = Math.PI / 2;
 const TWO_PI = Math.PI * 2;
 const KALEIDOSCOPE_EASE = 0.01;
+const KALEIDOSCOPE_ENERGY_WINDOW_SECONDS = 0.5;
+const KALEIDOSCOPE_ENERGY_CAP = 0.45;
 const highwayStateMap = new WeakMap<
   HTMLCanvasElement,
   {
@@ -38,7 +40,6 @@ type KaleidoscopeState = {
   rotationTarget: number;
   rotationSpeed: number;
   lastTime: number;
-  energy: number;
   image: HTMLImageElement;
   pattern: CanvasPattern | null;
   onMouseMove?: (event: MouseEvent) => void;
@@ -62,6 +63,7 @@ export type VisualizerInputs = {
   isPlaying: boolean;
   amplitudeEnvelope?: number[];
   amplitudeMaximum?: number;
+  effectiveVolume?: number;
   sampleRate: number;
 };
 
@@ -74,6 +76,7 @@ export function drawVisualizer({
   isPlaying,
   amplitudeEnvelope,
   amplitudeMaximum = 1,
+  effectiveVolume = 1,
   sampleRate,
 }: VisualizerInputs) {
   const context = canvas.getContext("2d");
@@ -1472,6 +1475,8 @@ export function drawVisualizer({
       const radius = 1100;
       const slices = 24;
       const zoom = 1.5;
+      const randomOffsetX = (Math.random() * 2 - 1) * radius * 0.6;
+      const randomOffsetY = (Math.random() * 2 - 1) * radius * 0.6;
 
       const image = new Image();
       image.crossOrigin = "Anonymous";
@@ -1486,14 +1491,13 @@ export function drawVisualizer({
         zoom,
         offsetRotation: 0,
         offsetScale: 0.8,
-        offsetX: 0,
-        offsetY: 0,
-        targetX: 0,
-        targetY: 0,
+        offsetX: randomOffsetX,
+        offsetY: randomOffsetY,
+        targetX: randomOffsetX,
+        targetY: randomOffsetY,
         rotationTarget: 0,
         rotationSpeed: 0.002,
         lastTime: currentTime,
-        energy: 0,
         image,
         pattern: null,
       };
@@ -1532,16 +1536,22 @@ export function drawVisualizer({
       let energy = 0;
 
       if (amplitudeEnvelope && amplitudeEnvelope.length) {
-        const index = currentTime / AMPLITUDE_WINDOW_SECONDS;
-        const baseIndex = Math.floor(index);
-        const nextIndex = Math.min(baseIndex + 1, amplitudeEnvelope.length - 1);
-        const fraction = index - baseIndex;
-        const first =
-          amplitudeEnvelope[
-            Math.max(0, Math.min(baseIndex, amplitudeEnvelope.length - 1))
-          ] ?? 0;
-        const second = amplitudeEnvelope[nextIndex] ?? first;
-        const amplitude = first + (second - first) * fraction;
+        const halfWindow = KALEIDOSCOPE_ENERGY_WINDOW_SECONDS / 2;
+        const startIndex = Math.max(
+          0,
+          Math.floor((currentTime - halfWindow) / AMPLITUDE_WINDOW_SECONDS)
+        );
+        const endIndex = Math.min(
+          amplitudeEnvelope.length - 1,
+          Math.ceil((currentTime + halfWindow) / AMPLITUDE_WINDOW_SECONDS)
+        );
+        let sum = 0;
+        let count = 0;
+        for (let i = startIndex; i <= endIndex; i++) {
+          sum += amplitudeEnvelope[i] ?? 0;
+          count += 1;
+        }
+        const amplitude = count > 0 ? sum / count : 0;
         energy = amplitudeMaximum > 0 ? amplitude / amplitudeMaximum : 0;
       } else {
         const bufferLength = analyser.frequencyBinCount;
@@ -1559,15 +1569,24 @@ export function drawVisualizer({
 
       const deltaTime = Math.max(0, currentTime - cached.lastTime);
       cached.lastTime = currentTime;
-      if (!isPlaying || deltaTime === 0 || !Number.isFinite(energy)) {
+      const clampedVolume = Math.max(0, Math.min(1, effectiveVolume));
+      energy *= clampedVolume;
+      if (
+        !isPlaying ||
+        deltaTime === 0 ||
+        !Number.isFinite(energy) ||
+        clampedVolume === 0
+      ) {
         energy = 0;
       }
-      const clampedEnergy = Math.max(0, Math.min(1, energy));
-      cached.energy += (clampedEnergy - cached.energy) * 0.1;
-      const weightedDeltaTime = Math.min(1, deltaTime * cached.energy);
+      const clampedEnergy = Math.max(
+        0,
+        Math.min(KALEIDOSCOPE_ENERGY_CAP, energy / 25)
+      );
+      const weightedDeltaTime = Math.min(1, deltaTime * clampedEnergy);
       cached.rotationTarget -= cached.rotationSpeed * weightedDeltaTime * 60;
 
-      const ease = energy * KALEIDOSCOPE_EASE;
+      const ease = clampedEnergy * KALEIDOSCOPE_EASE;
 
       cached.offsetX += (cached.targetX - cached.offsetX) * ease;
       cached.offsetY += (cached.targetY - cached.offsetY) * ease;
