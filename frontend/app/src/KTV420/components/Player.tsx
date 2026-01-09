@@ -95,8 +95,9 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [amplitudeMaximums, setAmplitudeMaximums] = useState<
     Record<string, number>
   >({});
-  const [visualizerType, setVisualizerType] =
-    useState<VisualizerType>("kaleidoscope");
+  const [visualizerType, setVisualizerType] = useState<VisualizerType>(
+    visualizerOptions[0].value
+  );
   const [trackMuteStates, setTrackMuteStates] = useState<
     Record<string, boolean>
   >({});
