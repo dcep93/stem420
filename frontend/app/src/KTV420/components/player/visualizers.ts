@@ -43,7 +43,10 @@ type KaleidoscopeState = {
   onMouseMove?: (event: MouseEvent) => void;
 };
 
-const kaleidoscopeStateMap = new WeakMap<HTMLCanvasElement, KaleidoscopeState>();
+const kaleidoscopeStateMap = new WeakMap<
+  HTMLCanvasElement,
+  KaleidoscopeState
+>();
 
 function isLowPowerMode(): boolean {
   return cachedPerformanceMode;
@@ -1522,20 +1525,23 @@ export function drawVisualizer({
         return;
       }
 
-      const deltaTime = Math.max(0, currentTime - cached.lastTime);
+      const energy = 1;
+
+      const deltaTime = energy * Math.max(0, currentTime - cached.lastTime);
       cached.lastTime = currentTime;
       cached.rotationTarget -= cached.rotationSpeed * deltaTime * 60;
 
-      cached.offsetX +=
-        (cached.targetX - cached.offsetX) * KALEIDOSCOPE_EASE;
-      cached.offsetY +=
-        (cached.targetY - cached.offsetY) * KALEIDOSCOPE_EASE;
+      const ease = energy * KALEIDOSCOPE_EASE;
+
+      cached.offsetX += (cached.targetX - cached.offsetX) * ease;
+      cached.offsetY += (cached.targetY - cached.offsetY) * ease;
       cached.offsetRotation +=
-        (cached.rotationTarget - cached.offsetRotation) * KALEIDOSCOPE_EASE;
+        (cached.rotationTarget - cached.offsetRotation) * ease;
 
       const cx = cached.image.width / 2;
       const scale =
-        cached.zoom * (cached.radius / Math.min(cached.image.width, cached.image.height));
+        cached.zoom *
+        (cached.radius / Math.min(cached.image.width, cached.image.height));
       const step = TWO_PI / cached.slices;
 
       context.save();
