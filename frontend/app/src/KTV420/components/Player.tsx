@@ -786,47 +786,49 @@ export default function Player({ record, onClose }: PlayerProps) {
     setChordStatus("Checking cached harmony...");
 
     try {
-      const cachedRecord = await getCachedChordTimeline(record.md5);
+      try {
+        const cachedRecord = await getCachedChordTimeline(record.md5);
 
-      if (cachedRecord) {
-        const cachedTimeline = cachedRecord.timeline ?? [];
-        setChordTimeline(cachedTimeline);
-        setChordStatus(
-          cachedTimeline.length
-            ? "Harmonic map ready"
-            : "No obvious chords detected"
-        );
-        return;
+        if (cachedRecord) {
+          const cachedTimeline = cachedRecord.timeline ?? [];
+          setChordTimeline(cachedTimeline);
+          setChordStatus(
+            cachedTimeline.length
+              ? "Harmonic map ready"
+              : "No obvious chords detected"
+          );
+          return;
+        }
+      } catch (cacheError) {
+        console.warn("Failed to load cached chord timeline", cacheError);
       }
-    } catch (cacheError) {
-      console.warn("Failed to load cached chord timeline", cacheError);
-    }
 
-    setChordStatus("Analyzing harmony from input MP3...");
-
-    try {
-      const timeline = await analyzeChordTimeline(audioBuffer, {
-        stableFrameCount: 2,
-        minimumConfidence: 0.16,
-        windowSeconds: 1.6,
-        hopSeconds: 0.5,
-        targetSampleRate: 11025,
-        yieldEveryFrames: 6,
-      });
-
-      setChordTimeline(timeline);
-      setChordStatus(
-        timeline.length ? "Harmonic map ready" : "No obvious chords detected"
-      );
+      setChordStatus("Analyzing harmony from input MP3...");
 
       try {
-        await cacheChordTimeline(record.md5, timeline);
-      } catch (cacheError) {
-        console.warn("Failed to cache chord timeline", cacheError);
+        const timeline = await analyzeChordTimeline(audioBuffer, {
+          stableFrameCount: 2,
+          minimumConfidence: 0.16,
+          windowSeconds: 1.6,
+          hopSeconds: 0.5,
+          targetSampleRate: 11025,
+          yieldEveryFrames: 6,
+        });
+
+        setChordTimeline(timeline);
+        setChordStatus(
+          timeline.length ? "Harmonic map ready" : "No obvious chords detected"
+        );
+
+        try {
+          await cacheChordTimeline(record.md5, timeline);
+        } catch (cacheError) {
+          console.warn("Failed to cache chord timeline", cacheError);
+        }
+      } catch (chordError) {
+        console.error("Failed to analyze chord timeline", chordError);
+        setChordStatus("Unable to analyze chords for this input");
       }
-    } catch (chordError) {
-      console.error("Failed to analyze chord timeline", chordError);
-      setChordStatus("Unable to analyze chords for this input");
     } finally {
       setIsHarmonicAnalysisRunning(false);
     }
