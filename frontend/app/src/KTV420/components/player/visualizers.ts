@@ -1455,7 +1455,8 @@ export function drawVisualizer({
         const renderHeight = offscreen.height;
         const centerX = renderWidth / 2;
         const centerY = renderHeight / 2;
-        const maxRadius = Math.min(renderWidth, renderHeight) * 0.5;
+        const maxRadius =
+          Math.hypot(renderWidth, renderHeight) * 0.5;
         let seed =
           Math.floor(renderWidth * 13.17 + renderHeight * 7.31) ^
           Math.floor(Math.random() * 100000);
