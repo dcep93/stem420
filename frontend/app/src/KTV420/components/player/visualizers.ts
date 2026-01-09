@@ -20,6 +20,10 @@ const highwayStateMap = new WeakMap<
     >;
   }
 >();
+const kaleidoscopeStateMap = new WeakMap<
+  HTMLCanvasElement,
+  { width: number; height: number; scale: number; image: HTMLCanvasElement }
+>();
 
 function isLowPowerMode(): boolean {
   return cachedPerformanceMode;
@@ -1433,197 +1437,210 @@ export function drawVisualizer({
     context.globalCompositeOperation = "source-over";
     context.restore();
   } else if (visualizerType === "kaleidoscope") {
-    const freqLength = analyser.frequencyBinCount;
-    const frequencyData = new Uint8Array(freqLength);
-    analyser.getByteFrequencyData(frequencyData);
+    const cached = kaleidoscopeStateMap.get(canvas);
+    const renderScale = performanceMode ? 0.35 : 0.5;
+    if (
+      !cached ||
+      cached.width !== width ||
+      cached.height !== height ||
+      cached.scale !== renderScale
+    ) {
+      const offscreen = document.createElement("canvas");
+      offscreen.width = Math.max(1, Math.floor(width * renderScale));
+      offscreen.height = Math.max(1, Math.floor(height * renderScale));
+      const offscreenContext = offscreen.getContext("2d");
 
-    const timeLength = analyser.fftSize;
-    const timeData = new Uint8Array(timeLength);
-    analyser.getByteTimeDomainData(timeData);
+      if (offscreenContext) {
+        const renderWidth = offscreen.width;
+        const renderHeight = offscreen.height;
+        const centerX = renderWidth / 2;
+        const centerY = renderHeight / 2;
+        const maxRadius = Math.min(renderWidth, renderHeight) * 0.5;
+        let seed =
+          Math.floor(renderWidth * 13.17 + renderHeight * 7.31) ^
+          Math.floor(Math.random() * 100000);
+        const random = () => {
+          seed = (seed * 1664525 + 1013904223) % 4294967296;
+          return seed / 4294967296;
+        };
+        const palette = [
+          20, 35, 55, 120, 150, 170, 190, 210, 235, 260, 285, 315, 340, 355,
+        ];
 
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const maxRadius = Math.sqrt(width * width + height * height) / 2;
-    const totalEnergy =
-      freqLength > 0
-        ? frequencyData.reduce((sum, value) => sum + value, 0) /
-          (freqLength * 255)
-        : 0;
-    const bassEnergy =
-      freqLength > 0
-        ? frequencyData
-            .slice(0, Math.max(4, Math.floor(freqLength / 12)))
-            .reduce((sum, value) => sum + value, 0) /
-          (Math.max(4, Math.floor(freqLength / 12)) * 255)
-        : 0;
-    const shimmer =
-      timeLength > 0
-        ? timeData.reduce(
-            (sum, value) => sum + Math.abs((value ?? 128) - 128),
-            0
-          ) /
-          (timeLength * 128)
-        : 0;
-
-    const baseHue = (currentTime * 50 + totalEnergy * 220) % 360;
-    const backdrop = context.createRadialGradient(
-      centerX,
-      centerY,
-      0,
-      centerX,
-      centerY,
-      maxRadius
-    );
-    backdrop.addColorStop(
-      0,
-      `hsl(${(baseHue + 40) % 360}, 65%, ${18 + totalEnergy * 18}%)`
-    );
-    backdrop.addColorStop(
-      0.45,
-      `hsl(${(baseHue + 120) % 360}, 60%, ${12 + totalEnergy * 20}%)`
-    );
-    backdrop.addColorStop(1, `hsl(${(baseHue + 200) % 360}, 70%, 8%)`);
-    context.fillStyle = backdrop;
-    context.fillRect(0, 0, width, height);
-
-    context.save();
-    context.translate(centerX, centerY);
-    const slices = performanceMode ? 12 : 18;
-    const wedge = (Math.PI * 2) / slices;
-    const pulse = 0.85 + bassEnergy * 0.45 + Math.sin(currentTime * 2) * 0.08;
-
-    const radiusAt = (t: number) => {
-      const idx = Math.floor(t * (timeLength - 1));
-      const osc = ((timeData[idx] ?? 128) - 128) / 128;
-      const ripple = Math.sin(t * Math.PI * 6 + currentTime * 1.4) * 0.12;
-      const depth = 0.25 + t * 0.9;
-      return (
-        depth *
-        maxRadius *
-        (0.65 + Math.abs(osc) * 0.9 + ripple * (0.4 + shimmer))
-      );
-    };
-
-    const drawPetal = (flip = false) => {
-      const steps = performanceMode ? 80 : 120;
-      context.beginPath();
-      context.moveTo(0, 0);
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const radius = radiusAt(t) * pulse;
-        const theta = wedge * (flip ? 1 - t : t);
-        context.lineTo(Math.cos(theta) * radius, Math.sin(theta) * radius);
-      }
-      context.closePath();
-    };
-
-    for (let slice = 0; slice < slices; slice++) {
-      context.save();
-      context.rotate(slice * wedge + currentTime * (0.14 + totalEnergy * 0.45));
-      const hue = (baseHue + slice * 18 + shimmer * 90) % 360;
-      const lightness = 52 + totalEnergy * 22;
-      const saturation = 78 + shimmer * 12;
-      const fill = context.createLinearGradient(
-        0,
-        0,
-        maxRadius * 0.6,
-        maxRadius
-      );
-      fill.addColorStop(
-        0,
-        `hsla(${hue}, ${saturation}%, ${lightness + 10}%, 0.26)`
-      );
-      fill.addColorStop(
-        1,
-        `hsla(${(hue + 80) % 360}, ${saturation + 8}%, ${lightness}%, 0.18)`
-      );
-      context.fillStyle = fill;
-      context.strokeStyle = `hsla(${(hue + 40) % 360}, 95%, ${
-        lightness + 12
-      }%, ${0.55 + totalEnergy * 0.25})`;
-      context.lineWidth = performanceMode ? 1.3 : 1.8;
-
-      drawPetal();
-      context.fill();
-      context.stroke();
-
-      context.scale(-1, 1);
-      drawPetal(true);
-      context.fill();
-      context.stroke();
-      context.restore();
-    }
-
-    context.globalCompositeOperation = "screen";
-    const laceLayers = performanceMode ? 4 : 6;
-    for (let layer = 0; layer < laceLayers; layer++) {
-      const progress = layer / laceLayers;
-      const radius = (0.2 + progress * 0.85) * maxRadius;
-      const hue = (baseHue + progress * 120 + shimmer * 60) % 360;
-      const spokes = performanceMode ? 24 : 32;
-      const glow = 6 + totalEnergy * 16 + progress * 12;
-      for (let spoke = 0; spoke < spokes; spoke++) {
-        const angle =
-          (spoke / spokes) * Math.PI * 2 + currentTime * 0.25 + layer * 0.15;
-        const variance =
-          Math.sin(angle * 3 + currentTime * 1.3) * (10 + totalEnergy * 40);
-        context.beginPath();
-        context.moveTo(
-          Math.cos(angle) * (radius - 14 - variance * 0.3),
-          Math.sin(angle) * (radius - 14 - variance * 0.3)
+        const background = offscreenContext.createRadialGradient(
+          centerX,
+          centerY,
+          0,
+          centerX,
+          centerY,
+          maxRadius * 1.6
         );
-        context.lineTo(
-          Math.cos(angle) * (radius + variance),
-          Math.sin(angle) * (radius + variance)
-        );
-        context.strokeStyle = `hsla(${hue}, 90%, ${50 + progress * 30}%, ${
-          0.18 + totalEnergy * 0.3
-        })`;
-        context.lineWidth = performanceMode ? 1 : 1.4;
-        context.shadowBlur = glow;
-        context.shadowColor = `hsla(${hue}, 90%, 65%, 0.7)`;
-        context.stroke();
+        background.addColorStop(0, "hsl(290, 80%, 20%)");
+        background.addColorStop(0.35, "hsl(255, 78%, 18%)");
+        background.addColorStop(0.7, "hsl(220, 70%, 14%)");
+        background.addColorStop(1, "hsl(215, 90%, 6%)");
+        offscreenContext.fillStyle = background;
+        offscreenContext.fillRect(0, 0, renderWidth, renderHeight);
+
+        const textureSize = performanceMode ? 360 : 480;
+        const textureCanvas = document.createElement("canvas");
+        textureCanvas.width = textureSize;
+        textureCanvas.height = textureSize;
+        const textureContext = textureCanvas.getContext("2d");
+
+        if (textureContext) {
+          textureContext.fillStyle = "hsl(265, 75%, 16%)";
+          textureContext.fillRect(0, 0, textureSize, textureSize);
+          const bloomCount = performanceMode ? 5 : 8;
+          for (let i = 0; i < bloomCount; i++) {
+            const hue =
+              palette[Math.floor(random() * palette.length)] ?? 220;
+            const radius = textureSize * (0.18 + random() * 0.38);
+            const x = random() * textureSize;
+            const y = random() * textureSize;
+            const bloom = textureContext.createRadialGradient(
+              x,
+              y,
+              0,
+              x,
+              y,
+              radius
+            );
+            bloom.addColorStop(0, `hsla(${hue}, 90%, 62%, 0.55)`);
+            bloom.addColorStop(0.55, `hsla(${(hue + 45) % 360}, 85%, 55%, 0.3)`);
+            bloom.addColorStop(1, "rgba(0,0,0,0)");
+            textureContext.fillStyle = bloom;
+            textureContext.beginPath();
+            textureContext.arc(x, y, radius, 0, Math.PI * 2);
+            textureContext.fill();
+          }
+
+          textureContext.globalCompositeOperation = "screen";
+          const strokeCount = performanceMode ? 90 : 140;
+          for (let i = 0; i < strokeCount; i++) {
+            const hue =
+              palette[Math.floor(random() * palette.length)] ?? 220;
+            const x = random() * textureSize;
+            const y = random() * textureSize;
+            const length = textureSize * (0.1 + random() * 0.25);
+            const angle = random() * Math.PI * 2;
+            textureContext.strokeStyle = `hsla(${hue}, 95%, 65%, 0.35)`;
+            textureContext.lineWidth = 1 + random() * 1.6;
+            textureContext.beginPath();
+            textureContext.moveTo(x, y);
+            textureContext.lineTo(
+              x + Math.cos(angle) * length,
+              y + Math.sin(angle) * length
+            );
+            textureContext.stroke();
+          }
+          textureContext.globalCompositeOperation = "source-over";
+
+          const dotCount = performanceMode ? 260 : 420;
+          for (let i = 0; i < dotCount; i++) {
+            const hue =
+              palette[Math.floor(random() * palette.length)] ?? 220;
+            const radius = 0.8 + random() * 2.6;
+            textureContext.fillStyle = `hsla(${hue}, 95%, 70%, ${
+              0.15 + random() * 0.4
+            })`;
+            textureContext.beginPath();
+            textureContext.arc(
+              random() * textureSize,
+              random() * textureSize,
+              radius,
+              0,
+              Math.PI * 2
+            );
+            textureContext.fill();
+          }
+
+          const rings = performanceMode ? 6 : 9;
+          for (let ring = 0; ring < rings; ring++) {
+            const ringRadius = textureSize * (0.15 + ring * 0.08);
+            textureContext.strokeStyle = `hsla(${260 + ring * 10}, 80%, 55%, ${
+              0.08 + ring * 0.03
+            })`;
+            textureContext.lineWidth = 1;
+            textureContext.beginPath();
+            textureContext.arc(
+              textureSize / 2,
+              textureSize / 2,
+              ringRadius,
+              0,
+              Math.PI * 2
+            );
+            textureContext.stroke();
+          }
+        }
+
+        const pattern = textureContext
+          ? offscreenContext.createPattern(textureCanvas, "repeat")
+          : null;
+        if (pattern) {
+          const slices = performanceMode ? 18 : 24;
+          const step = (Math.PI * 2) / slices;
+          const scale =
+            (performanceMode ? 1.25 : 1.45) *
+            (maxRadius / Math.min(textureSize, textureSize));
+          const offsetX = (random() - 0.5) * textureSize * 0.6;
+          const offsetY = (random() - 0.5) * textureSize * 0.6;
+
+          offscreenContext.fillStyle = pattern;
+          for (let slice = 0; slice <= slices; slice++) {
+            offscreenContext.save();
+            offscreenContext.translate(centerX, centerY);
+            offscreenContext.rotate(slice * step);
+            offscreenContext.beginPath();
+            offscreenContext.moveTo(-0.5, -0.5);
+            offscreenContext.arc(0, 0, maxRadius, step * -0.51, step * 0.51);
+            offscreenContext.rotate(Math.PI / 2);
+            offscreenContext.scale(scale, scale);
+            offscreenContext.scale(slice % 2 === 0 ? 1 : -1, 1);
+            offscreenContext.translate(offsetX, offsetY);
+            offscreenContext.fill();
+            offscreenContext.restore();
+          }
+        }
+
+        offscreenContext.globalCompositeOperation = "screen";
+        offscreenContext.save();
+        offscreenContext.translate(centerX, centerY);
+        const haloCount = performanceMode ? 5 : 7;
+        for (let ring = 0; ring < haloCount; ring++) {
+          const progress = ring / haloCount;
+          const hue = 260 + progress * 120;
+          offscreenContext.beginPath();
+          offscreenContext.arc(
+            0,
+            0,
+            maxRadius * (0.2 + progress * 0.8),
+            0,
+            Math.PI * 2
+          );
+          offscreenContext.strokeStyle = `hsla(${hue}, 95%, ${
+            55 + progress * 20
+          }%, ${0.12 + progress * 0.2})`;
+          offscreenContext.lineWidth = 1.2 + progress * 0.8;
+          offscreenContext.stroke();
+        }
+        offscreenContext.restore();
+        offscreenContext.globalCompositeOperation = "source-over";
       }
+
+      kaleidoscopeStateMap.set(canvas, {
+        width,
+        height,
+        scale: renderScale,
+        image: offscreen,
+      });
     }
 
-    context.shadowBlur = 0;
-    const ringCount = performanceMode ? 5 : 8;
-    for (let ring = 0; ring < ringCount; ring++) {
-      const progress = ring / ringCount;
-      const radius = (0.12 + progress * 0.86) * maxRadius;
-      const hue = (baseHue + progress * 160 + bassEnergy * 80) % 360;
-      const alpha = 0.16 + totalEnergy * 0.35 + progress * 0.1;
-      context.beginPath();
-      context.arc(0, 0, radius, 0, Math.PI * 2);
-      context.strokeStyle = `hsla(${hue}, 95%, ${
-        45 + progress * 35
-      }%, ${alpha})`;
-      context.lineWidth = 1.4 + Math.sin(currentTime * 2 + ring) * 0.6;
-      context.stroke();
+    const cachedImage = kaleidoscopeStateMap.get(canvas);
+    if (cachedImage) {
+      context.imageSmoothingEnabled = true;
+      context.drawImage(cachedImage.image, 0, 0, width, height);
     }
-
-    const moteCount = performanceMode ? 80 : 140;
-    for (let i = 0; i < moteCount; i++) {
-      const t = i / moteCount;
-      const hue = (baseHue + t * 260 + shimmer * 80) % 360;
-      const radius = (0.05 + t * 0.95) * maxRadius;
-      const theta = wedge * i * 0.5 + currentTime * (0.6 + totalEnergy * 0.6);
-      const flicker =
-        0.2 + totalEnergy * 0.6 + Math.sin(currentTime * 3 + i) * 0.12;
-      context.beginPath();
-      context.arc(
-        Math.cos(theta) * radius,
-        Math.sin(theta) * radius,
-        1.2 + flicker * 2.6,
-        0,
-        Math.PI * 2
-      );
-      context.fillStyle = `hsla(${hue}, 95%, 68%, ${0.15 + flicker * 0.35})`;
-      context.fill();
-    }
-
-    context.globalCompositeOperation = "source-over";
-    context.restore();
   } else if (visualizerType === "highway") {
     const highwayState =
       highwayStateMap.get(canvas) ??

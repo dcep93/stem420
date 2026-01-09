@@ -96,7 +96,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     Record<string, number>
   >({});
   const [visualizerType, setVisualizerType] =
-    useState<VisualizerType>("time-ribbon");
+    useState<VisualizerType>("kaleidoscope");
   const [trackMuteStates, setTrackMuteStates] = useState<
     Record<string, boolean>
   >({});
