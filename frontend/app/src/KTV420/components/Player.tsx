@@ -348,20 +348,6 @@ export default function Player({ record, onClose }: PlayerProps) {
     [ensureAudioContext]
   );
 
-  const applyPlaybackRateForTrack = useCallback(
-    (trackId: string, _effectType: AudioEffectType, _effectValue?: number) => {
-      const source = sourcesRef.current[trackId];
-      const context = audioCtxRef.current ?? ensureAudioContext();
-
-      if (!source || !context) {
-        return;
-      }
-
-      source.playbackRate.setTargetAtTime(1, context.currentTime, 0.02);
-    },
-    [ensureAudioContext]
-  );
-
   const currentPlaybackTime = useCallback(() => {
     const context = audioCtxRef.current;
 
@@ -1039,11 +1025,6 @@ export default function Player({ record, onClose }: PlayerProps) {
 
     setEffectValues((previous) => ({ ...previous, [trackId]: clamped }));
     applyEffectValue(trackId, clamped);
-    applyPlaybackRateForTrack(
-      trackId,
-      effectTypesRef.current[trackId] ?? "wah",
-      clamped
-    );
   };
 
   const handleEffectTypeChange = (
@@ -1055,11 +1036,6 @@ export default function Player({ record, onClose }: PlayerProps) {
     setEffectValues((previous) => ({ ...previous, [trackId]: defaultValue }));
     setEffectTypes((previous) => ({ ...previous, [trackId]: effectType }));
     applyEffectValue(trackId, defaultValue, effectType);
-    applyPlaybackRateForTrack(
-      trackId,
-      effectType,
-      effectValuesRef.current[trackId]
-    );
   };
 
   const handleEffectReset = (trackId: string) => {
@@ -1072,11 +1048,6 @@ export default function Player({ record, onClose }: PlayerProps) {
       [trackId]: defaultValue,
     }));
     applyEffectValue(trackId, defaultValue);
-    applyPlaybackRateForTrack(
-      trackId,
-      effectTypesRef.current[trackId] ?? "wah",
-      effectValuesRef.current[trackId]
-    );
   };
 
   const toggleTrackMute = (trackId: string) => {
