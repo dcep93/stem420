@@ -6,6 +6,15 @@ import {
 } from "./types";
 
 const cachedPerformanceMode = true;
+const highwayStateMap = new WeakMap<
+  HTMLCanvasElement,
+  {
+    lastTime: number;
+    speed: number;
+    cacti: Map<number, { progress: number; side: number; speedBias: number }>;
+    spawns: Map<number, { nextTime: number; seed: number; rng: number; sideSpeed: number }>;
+  }
+>();
 
 function isLowPowerMode(): boolean {
   return cachedPerformanceMode;
@@ -1456,6 +1465,18 @@ export function drawVisualizer({
     context.globalCompositeOperation = "source-over";
     context.restore();
   } else if (visualizerType === "highway") {
+    const highwayState =
+      highwayStateMap.get(canvas) ??
+      (() => {
+        const initialState = {
+          lastTime: 0,
+          speed: 1,
+          cacti: new Map<number, { progress: number; side: number; speedBias: number }>(),
+          spawns: new Map<number, { nextTime: number; seed: number; rng: number; sideSpeed: number }>(),
+        };
+        highwayStateMap.set(canvas, initialState);
+        return initialState;
+      })();
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
     analyser.getByteFrequencyData(dataArray);
@@ -1499,15 +1520,36 @@ export function drawVisualizer({
         ? 1
         : segmentProgress * 0.85
       : segmentProgress * segmentProgress * (3 - 2 * segmentProgress);
-    const baseTargetA = (190 + hashFloat(segmentSeed * 2.7) * 140) % 360;
-    const baseTargetB = (190 + hashFloat((segmentSeed + 1) * 2.7) * 140) % 360;
-    const accentTargetA = (20 + hashFloat(segmentSeed * 5.4) * 120) % 360;
-    const accentTargetB = (20 + hashFloat((segmentSeed + 1) * 5.4) * 120) % 360;
+    const pickHue = (seed: number) => {
+      const selector = hashFloat(seed * 3.3);
+      if (selector < 0.6) {
+        const redPick = hashFloat(seed * 5.1);
+        return redPick < 0.5 ? lerp(330, 360, redPick * 2) : lerp(0, 30, (redPick - 0.5) * 2);
+      }
+      return lerp(200, 260, hashFloat(seed * 7.7));
+    };
+    const baseTargetA = pickHue(segmentSeed * 2.7);
+    const baseTargetB = pickHue((segmentSeed + 1) * 2.7);
+    const accentTargetA = pickHue(segmentSeed * 5.4);
+    const accentTargetB = pickHue((segmentSeed + 1) * 5.4);
+    const originalBaseTargetA = (190 + hashFloat(segmentSeed * 2.7) * 140) % 360;
+    const originalBaseTargetB = (190 + hashFloat((segmentSeed + 1) * 2.7) * 140) % 360;
+    const originalAccentTargetA = (20 + hashFloat(segmentSeed * 5.4) * 120) % 360;
+    const originalAccentTargetB = (20 + hashFloat((segmentSeed + 1) * 5.4) * 120) % 360;
     const hueWobble = Math.sin(currentTime * 0.25 + segmentSeed) * 6;
-    const baseHue = blendHue(baseTargetA, baseTargetB, easedProgress) + hueWobble;
-    const accentHue = blendHue(accentTargetA, accentTargetB, easedProgress) + hueWobble * 0.6;
-    const saturationLift = 10 + hashFloat(segmentSeed * 7.7) * 12;
-    const lightnessLift = 6 + hashFloat(segmentSeed * 8.8) * 6;
+    const psychedelicMix = Math.min(1, currentTime / 20);
+    const baseHue = blendHue(
+      blendHue(originalBaseTargetA, originalBaseTargetB, easedProgress),
+      blendHue(baseTargetA, baseTargetB, easedProgress),
+      psychedelicMix
+    ) + hueWobble;
+    const accentHue = blendHue(
+      blendHue(originalAccentTargetA, originalAccentTargetB, easedProgress),
+      blendHue(accentTargetA, accentTargetB, easedProgress),
+      psychedelicMix
+    ) + hueWobble * 0.6;
+    const saturationLift = (10 + hashFloat(segmentSeed * 7.7) * 12) * (1 - psychedelicMix) + (18 + hashFloat(segmentSeed * 7.7) * 18) * psychedelicMix;
+    const lightnessLift = (6 + hashFloat(segmentSeed * 8.8) * 6) * (1 - psychedelicMix) + (8 + hashFloat(segmentSeed * 8.8) * 10) * psychedelicMix;
 
     const hexToRgb = (hex: string) => {
       const value = hex.replace("#", "");
@@ -1657,18 +1699,18 @@ export function drawVisualizer({
     const horizonBandHeight = height * 0.04;
     context.fillStyle = mixColor(
       "#e1b93f",
-      hslToRgb((accentHue + 12) % 360, 88, 56 + midEnergy * 10),
-      evolution * 0.9
+      hslToRgb((accentHue + 220) % 360, 80, 52 + midEnergy * 10),
+      evolution * 0.9 * psychedelicMix
     );
     context.fillRect(0, horizon - horizonBandHeight, width, horizonBandHeight);
 
     const fieldBands = [
-      mixColor("#e8c56f", hslToRgb((baseHue + 8) % 360, 78, 62 + bassEnergy * 10), evolution),
-      mixColor("#e0bc64", hslToRgb((baseHue + 16) % 360, 76, 58 + midEnergy * 10), evolution),
-      mixColor("#3b8b3d", hslToRgb((baseHue + 80) % 360, 64, 40 + highEnergy * 10), evolution * 0.95),
-      mixColor("#e2c06a", hslToRgb((baseHue + 12) % 360, 76, 56 + midEnergy * 10), evolution),
-      mixColor("#d8b75f", hslToRgb((baseHue + 4) % 360, 74, 54 + bassEnergy * 10), evolution),
-      mixColor("#e8c56f", hslToRgb((baseHue + 20) % 360, 78, 60 + totalEnergy * 10), evolution),
+      mixColor("#e8c56f", hslToRgb((baseHue + 6) % 360, 78, 32 + bassEnergy * 10), evolution * psychedelicMix),
+      mixColor("#e0bc64", hslToRgb((baseHue + 12) % 360, 76, 30 + midEnergy * 10), evolution * psychedelicMix),
+      mixColor("#3b8b3d", hslToRgb((baseHue + 18) % 360, 80, 34 + highEnergy * 10), evolution * 0.95 * psychedelicMix),
+      mixColor("#e2c06a", hslToRgb((baseHue + 24) % 360, 74, 28 + midEnergy * 10), evolution * psychedelicMix),
+      mixColor("#d8b75f", hslToRgb((baseHue + 30) % 360, 82, 32 + bassEnergy * 10), evolution * psychedelicMix),
+      mixColor("#e8c56f", hslToRgb((baseHue + 36) % 360, 78, 36 + totalEnergy * 10), evolution * psychedelicMix),
     ];
     const fieldTop = horizon;
     const fieldHeight = height - fieldTop;
@@ -1720,10 +1762,10 @@ export function drawVisualizer({
     }
 
     const stripeColors = [
-      mixColor("#e6c46b", hslToRgb((accentHue + 8) % 360, 82, 62 + bassEnergy * 12), evolution),
-      mixColor("#d9b75f", hslToRgb((accentHue + 14) % 360, 80, 56 + midEnergy * 12), evolution),
-      mixColor("#cfae56", hslToRgb((accentHue + 20) % 360, 78, 52 + highEnergy * 12), evolution),
-      mixColor("#b3a056", hslToRgb((accentHue + 26) % 360, 76, 50 + totalEnergy * 12), evolution),
+      mixColor("#e6c46b", hslToRgb((accentHue + 10) % 360, 84, 62 + bassEnergy * 12), evolution * psychedelicMix),
+      mixColor("#d9b75f", hslToRgb((accentHue + 20) % 360, 82, 58 + midEnergy * 12), evolution * psychedelicMix),
+      mixColor("#cfae56", hslToRgb((accentHue + 30) % 360, 86, 54 + highEnergy * 12), evolution * psychedelicMix),
+      mixColor("#b3a056", hslToRgb((accentHue + 40) % 360, 88, 60 + totalEnergy * 12), evolution * psychedelicMix),
     ];
     const stripeCount = 10;
     for (let i = 0; i < stripeCount; i++) {
@@ -1742,6 +1784,94 @@ export function drawVisualizer({
       context.lineTo(width / 2 + roadBottom + stripePadding, height);
       context.stroke();
     }
+
+    const drawCactus = (t: number, side: number, seed: number) => {
+      const roadWidth = roadTop + (roadBottom - roadTop) * t;
+      const baseY = horizon + t * fieldHeight + 4;
+      const margin = 26 + t * 44;
+      const sway = Math.sin(currentTime * 1.6 + seed * 2.1) * (1 + t * 1.2);
+      const x = width / 2 + side * (roadWidth + margin) + sway;
+      const scale = 0.2 + t * 1.15;
+      const bodyHeight = 90 * scale;
+      const bodyWidth = 22 * scale;
+      const armHeight = 40 * scale;
+      const armWidth = 10 * scale;
+      const armOffset = 24 * scale;
+      context.save();
+      context.globalAlpha = 1;
+      context.fillStyle = "#1fa84e";
+      context.strokeStyle = "rgba(8, 60, 24, 0.75)";
+      context.lineWidth = Math.max(2, 3 * scale);
+      context.fillRect(x - bodyWidth / 2, baseY - bodyHeight, bodyWidth, bodyHeight);
+      context.fillRect(x - bodyWidth / 2 - armOffset, baseY - bodyHeight * 0.7, armWidth, armHeight);
+      context.fillRect(x + bodyWidth / 2 + armOffset - armWidth, baseY - bodyHeight * 0.62, armWidth, armHeight);
+      context.beginPath();
+      context.moveTo(x - bodyWidth / 2, baseY - bodyHeight);
+      context.lineTo(x - bodyWidth / 2, baseY);
+      context.lineTo(x + bodyWidth / 2, baseY);
+      context.lineTo(x + bodyWidth / 2, baseY - bodyHeight);
+      context.stroke();
+      context.restore();
+    };
+
+    const cactusInterval = 7.2;
+    const deltaTime = Math.max(0, currentTime - highwayState.lastTime);
+    if (currentTime < highwayState.lastTime) {
+      highwayState.cacti.clear();
+      highwayState.spawns.clear();
+      highwayState.speed = 1;
+    }
+    highwayState.lastTime = currentTime;
+    const speedTarget = 0.85 + totalEnergy * 0.6;
+    highwayState.speed = lerp(highwayState.speed, speedTarget, 0.04);
+    highwayState.cacti.forEach((cactus) => {
+      cactus.progress += (deltaTime * highwayState.speed * cactus.speedBias) / cactusInterval;
+    });
+    highwayState.cacti.forEach((cactus, seed) => {
+      if (cactus.progress > 1.1) {
+        highwayState.cacti.delete(seed);
+      }
+    });
+    const nextRandom = (state: { rng: number }) => {
+      state.rng = (state.rng * 1664525 + 1013904223) % 4294967296;
+      return state.rng / 4294967296;
+    };
+    const spawnCactiForSide = (side: number) => {
+      const spawnState = highwayState.spawns.get(side);
+      if (!spawnState) {
+        const baseSeed = Math.floor(hashFloat((currentTime + 11.3) * 1.7 + side * 91.7) * 100000) + 1;
+        const seed = baseSeed * 10 + (side > 0 ? 1 : 2);
+        const rngSeed = Math.floor(hashFloat(seed * 13.1 + side * 77.3) * 4294967296);
+        const sideSpeed = lerp(0.92, 1.08, hashFloat(seed * 3.7 + side * 19.1));
+        const initialState = { rng: rngSeed };
+        const gap = lerp(3.6, 9.8, nextRandom(initialState));
+        highwayState.spawns.set(side, {
+          nextTime: currentTime + gap,
+          seed,
+          rng: initialState.rng,
+          sideSpeed,
+        });
+        return;
+      }
+      let loops = 0;
+      while (currentTime >= spawnState.nextTime && loops < 3) {
+        const seed = spawnState.seed;
+        if (!highwayState.cacti.has(seed)) {
+          const perCactusBias = lerp(0.94, 1.06, hashFloat(seed * 2.3 + side * 7.1));
+          const speedBias = spawnState.sideSpeed * perCactusBias;
+          highwayState.cacti.set(seed, { progress: 0, side, speedBias });
+        }
+        spawnState.seed += 1;
+        const gap = lerp(3.6, 9.8, nextRandom(spawnState));
+        spawnState.nextTime += gap;
+        loops += 1;
+      }
+    };
+    spawnCactiForSide(-1);
+    spawnCactiForSide(1);
+    highwayState.cacti.forEach((cactus, seed) => {
+      drawCactus(cactus.progress, cactus.side, seed);
+    });
   } else if (visualizerType === "delay-pedal") {
     const bufferLength = analyser.fftSize;
     const timeData = new Uint8Array(bufferLength);
