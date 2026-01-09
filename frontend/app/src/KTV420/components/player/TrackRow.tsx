@@ -1,5 +1,6 @@
 import { type CSSProperties, type PointerEvent } from "react";
 
+import { type AudioEffectOption, type AudioEffectType } from "./audioEffects";
 import { type Track } from "./types";
 
 type TrackRowProps = {
@@ -7,9 +8,13 @@ type TrackRowProps = {
   volume: number;
   isMuted: boolean;
   isDeafened: boolean;
-  wahValue: number;
+  effectType: AudioEffectType;
+  effectValue: number;
+  effectOptions: AudioEffectOption[];
   onVolumeChange: (trackId: string, value: number) => void;
-  onWahChange: (trackId: string, value: number) => void;
+  onEffectValueChange: (trackId: string, value: number) => void;
+  onEffectTypeChange: (trackId: string, value: AudioEffectType) => void;
+  onResetEffect: (trackId: string) => void;
   onToggleMute: (trackId: string) => void;
   onToggleDeafen: (trackId: string) => void;
   registerCanvas: (canvas: HTMLCanvasElement | null) => void;
@@ -21,9 +26,13 @@ export function TrackRow({
   volume,
   isMuted,
   isDeafened,
-  wahValue,
+  effectType,
+  effectValue,
+  effectOptions,
   onVolumeChange,
-  onWahChange,
+  onEffectValueChange,
+  onEffectTypeChange,
+  onResetEffect,
   onToggleMute,
   onToggleDeafen,
   registerCanvas,
@@ -96,11 +105,42 @@ export function TrackRow({
           <label
             style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
           >
+            <span style={{ color: "#cbd5e1", fontWeight: 600 }}>Effect</span>
+            <select
+              value={effectType}
+              onChange={(event) =>
+                onEffectTypeChange(track.id, event.target.value as AudioEffectType)
+              }
+              style={{
+                background: "rgba(17,23,37,0.75)",
+                border: "1px solid #2f384a",
+                color: "#e5e7eb",
+                padding: "0.25rem 0.4rem",
+                borderRadius: "8px",
+              }}
+            >
+              {effectOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={effectValue}
+              onChange={(event) =>
+                onEffectValueChange(track.id, Number(event.target.value))
+              }
+              style={{ width: "120px" }}
+            />
             <button
               type="button"
-              onClick={() => onWahChange(track.id, 0.5)}
+              onClick={() => onResetEffect(track.id)}
               style={{
-                color: "#cbd5e1",
+                color: "#94a3b8",
                 fontWeight: 600,
                 background: "none",
                 border: "none",
@@ -108,19 +148,8 @@ export function TrackRow({
                 cursor: "pointer",
               }}
             >
-              Wah
+              Reset
             </button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={wahValue}
-              onChange={(event) =>
-                onWahChange(track.id, Number(event.target.value))
-              }
-              style={{ width: "120px" }}
-            />
           </label>
         </div>
       </div>

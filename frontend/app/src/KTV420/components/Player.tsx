@@ -13,6 +13,15 @@ import {
   analyzeChordTimeline,
   type ChordSnapshot,
 } from "./player/chordAnalyzer";
+import {
+  applyAudioEffect,
+  audioEffectOptions,
+  createEffectNodes,
+  type EffectNodes,
+  getPitchShiftPlaybackRate,
+  type AudioEffectType,
+  DEFAULT_EFFECT_VALUE,
+} from "./player/audioEffects";
 import { TrackRow } from "./player/TrackRow";
 import {
   AMPLITUDE_WINDOW_SECONDS,
@@ -91,7 +100,10 @@ export default function Player({ record, onClose }: PlayerProps) {
   const [trackDeafenStates, setTrackDeafenStates] = useState<
     Record<string, boolean>
   >({});
-  const [wahPositions, setWahPositions] = useState<Record<string, number>>({});
+  const [effectValues, setEffectValues] = useState<Record<string, number>>({});
+  const [effectTypes, setEffectTypes] = useState<
+    Record<string, AudioEffectType>
+  >({});
   const [readyTrackIds, setReadyTrackIds] = useState<string[]>([]);
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [chordTimeline, setChordTimeline] = useState<ChordSnapshot[]>([]);
@@ -107,21 +119,13 @@ export default function Player({ record, onClose }: PlayerProps) {
   const volumesRef = useRef<Record<string, number>>({});
   const trackMuteStatesRef = useRef<Record<string, boolean>>({});
   const trackDeafenStatesRef = useRef<Record<string, boolean>>({});
-  const wahPositionsRef = useRef<Record<string, number>>({});
+  const effectValuesRef = useRef<Record<string, number>>({});
+  const effectTypesRef = useRef<Record<string, AudioEffectType>>({});
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const buffersRef = useRef<Record<string, AudioBuffer>>({});
   const gainNodesRef = useRef<Record<string, GainNode>>({});
-  const wahNodesRef = useRef<
-    Record<
-      string,
-      {
-        filter: BiquadFilterNode;
-        wetGain: GainNode;
-        dryGain: GainNode;
-      }
-    >
-  >({});
+  const effectNodesRef = useRef<Record<string, EffectNodes>>({});
   const analyserNodesRef = useRef<Record<string, AnalyserNode>>({});
   const sourcesRef = useRef<Record<string, AudioBufferSourceNode>>({});
   const canvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
@@ -211,8 +215,12 @@ export default function Player({ record, onClose }: PlayerProps) {
   }, [trackDeafenStates]);
 
   useEffect(() => {
-    wahPositionsRef.current = wahPositions;
-  }, [wahPositions]);
+    effectValuesRef.current = effectValues;
+  }, [effectValues]);
+
+  useEffect(() => {
+    effectTypesRef.current = effectTypes;
+  }, [effectTypes]);
 
   const getEffectiveVolumeFromRefs = useCallback(
     (trackId: string, baseVolume?: number) => {
@@ -311,68 +319,61 @@ export default function Player({ record, onClose }: PlayerProps) {
     [ensureAudioContext, getEffectiveVolume]
   );
 
-  const applyWahPosition = useCallback(
-    (trackId: string, position?: number) => {
+  const applyEffectValue = useCallback(
+    (trackId: string, value?: number, effectOverride?: AudioEffectType) => {
       const context = audioCtxRef.current ?? ensureAudioContext();
-      const wahNodes = wahNodesRef.current[trackId];
+      const effectNodes = effectNodesRef.current[trackId];
 
-      if (!context || !wahNodes) {
+      if (!context || !effectNodes) {
         return;
       }
 
-      const LOUDNESS_BOTTOM = 0.5; // [0..1]
-      const LOUDNESS_TOP = 0.7; // [0..1]
+      const effectValue =
+        value ?? effectValuesRef.current[trackId] ?? DEFAULT_EFFECT_VALUE;
+      const effectType =
+        effectOverride ?? effectTypesRef.current[trackId] ?? "wah";
 
-      // Max boost at the extreme (in dB). 36 dB ~= 63x gain. Distortion expected at 1.0.
-      const MAX_EDGE_DB = 36;
-
-      const normalized = Math.min(
-        1,
-        Math.max(0, position ?? wahPositionsRef.current[trackId] ?? 0.5)
-      );
-
-      // Edge emphasis (ramps late/fast near 0 and 1)
-      const bottomEdge = Math.pow(1 - normalized, 3.5);
-      const topEdge = Math.pow(normalized, 3.5);
-
-      // Map [0..1] knobs -> dB -> linear gain
-      const bottomDb = bottomEdge * LOUDNESS_BOTTOM * MAX_EDGE_DB;
-      const topDb = topEdge * LOUDNESS_TOP * MAX_EDGE_DB;
-      const edgeDb = Math.max(bottomDb, topDb);
-      const edgeGain = Math.pow(10, edgeDb / 20);
-
-      // Original wah shaping
-      const offsetFromCenter = normalized - 0.5;
-      const wahAmount = Math.abs(offsetFromCenter) * 2;
-
-      const minFrequency = 250;
-      const maxFrequency = 2600;
-      const frequency =
-        minFrequency * Math.pow(maxFrequency / minFrequency, normalized);
-
-      const resonance = 3 + wahAmount * 10;
-
-      const crossfadeAngle = wahAmount * (Math.PI / 2);
-      const dryMix = Math.pow(Math.cos(crossfadeAngle), 4);
-      const wetMix = Math.sin(crossfadeAngle);
-
-      wahNodes.filter.type = "bandpass";
-      wahNodes.filter.frequency.setTargetAtTime(
-        frequency,
-        context.currentTime,
-        0.01
-      );
-      wahNodes.filter.Q.setTargetAtTime(resonance, context.currentTime, 0.01);
-
-      wahNodes.wetGain.gain.setTargetAtTime(
-        wetMix * edgeGain,
-        context.currentTime,
-        0.01
-      );
-      wahNodes.dryGain.gain.setTargetAtTime(dryMix, context.currentTime, 0.01);
+      applyAudioEffect({
+        context,
+        nodes: effectNodes,
+        effect: effectType,
+        value: effectValue,
+      });
     },
     [ensureAudioContext]
   );
+
+  const applyPlaybackRateForTrack = useCallback(
+    (trackId: string, effectType: AudioEffectType, effectValue?: number) => {
+      const source = sourcesRef.current[trackId];
+      const context = audioCtxRef.current ?? ensureAudioContext();
+
+      if (!source || !context) {
+        return;
+      }
+
+      const rate =
+        effectType === "pitch-shift"
+          ? getPitchShiftPlaybackRate(
+              effectValue ?? effectValuesRef.current[trackId] ?? 0
+            )
+          : 1;
+
+      source.playbackRate.setTargetAtTime(rate, context.currentTime, 0.02);
+    },
+    [ensureAudioContext]
+  );
+
+  const getPlaybackRateForTrack = useCallback((trackId: string) => {
+    const effectType = effectTypesRef.current[trackId] ?? "wah";
+    if (effectType !== "pitch-shift") {
+      return 1;
+    }
+
+    return getPitchShiftPlaybackRate(
+      effectValuesRef.current[trackId] ?? DEFAULT_EFFECT_VALUE
+    );
+  }, []);
 
   const currentPlaybackTime = useCallback(() => {
     const context = audioCtxRef.current;
@@ -413,18 +414,26 @@ export default function Player({ record, onClose }: PlayerProps) {
     const initialVolumes: Record<string, number> = {};
     const initialMuteStates: Record<string, boolean> = {};
     const initialDeafenStates: Record<string, boolean> = {};
+    const initialEffectValues: Record<string, number> = {};
+    const initialEffectTypes: Record<string, AudioEffectType> = {};
 
     for (const track of tracks) {
       initialVolumes[track.id] = 1;
       initialMuteStates[track.id] = track.isInput;
       initialDeafenStates[track.id] = false;
+      initialEffectValues[track.id] = DEFAULT_EFFECT_VALUE;
+      initialEffectTypes[track.id] = "wah";
     }
 
     volumesRef.current = initialVolumes;
     trackMuteStatesRef.current = initialMuteStates;
     trackDeafenStatesRef.current = initialDeafenStates;
+    effectValuesRef.current = initialEffectValues;
+    effectTypesRef.current = initialEffectTypes;
 
     setVolumes(initialVolumes);
+    setEffectValues(initialEffectValues);
+    setEffectTypes(initialEffectTypes);
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
@@ -438,7 +447,7 @@ export default function Player({ record, onClose }: PlayerProps) {
     stopAllSources();
     buffersRef.current = {};
     gainNodesRef.current = {};
-    wahNodesRef.current = {};
+    effectNodesRef.current = {};
     analyserNodesRef.current = {};
 
     const tracksSnapshot = tracks;
@@ -460,12 +469,23 @@ export default function Player({ record, onClose }: PlayerProps) {
       }
     });
 
-    Object.entries(wahNodesRef.current).forEach(([id, wahNodes]) => {
+    Object.entries(effectNodesRef.current).forEach(([id, effectNodes]) => {
       if (!activeIds.has(id)) {
-        wahNodes.filter.disconnect();
-        wahNodes.wetGain.disconnect();
-        wahNodes.dryGain.disconnect();
-        delete wahNodesRef.current[id];
+        effectNodes.filter.disconnect();
+        effectNodes.wetGain.disconnect();
+        effectNodes.dryGain.disconnect();
+        effectNodes.delay.disconnect();
+        effectNodes.feedbackGain.disconnect();
+        effectNodes.shaper.disconnect();
+        effectNodes.delayLfoGain.disconnect();
+        effectNodes.filterLfoGain.disconnect();
+        try {
+          effectNodes.lfo.stop();
+        } catch (error) {
+          console.warn("Failed to stop LFO", error);
+        }
+        effectNodes.lfo.disconnect();
+        delete effectNodesRef.current[id];
       }
     });
 
@@ -499,39 +519,38 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         buffersRef.current[track.id] = audioBuffer;
         const gain = context.createGain();
-        const wahFilter = context.createBiquadFilter();
-        const wahWetGain = context.createGain();
-        const wahDryGain = context.createGain();
+        const effectNodes = createEffectNodes(context);
         const analyser = context.createAnalyser();
 
         analyser.fftSize = 2048;
-        wahFilter.type = "bandpass";
-        wahFilter.Q.value = 3;
-        wahWetGain.gain.value = 0;
-        wahDryGain.gain.value = 1;
 
-        gain.connect(wahFilter);
-        gain.connect(wahDryGain);
-        wahFilter.connect(wahWetGain);
-        wahWetGain.connect(analyser);
-        wahDryGain.connect(analyser);
+        gain.connect(effectNodes.filter);
+        gain.connect(effectNodes.dryGain);
+        effectNodes.filter.connect(effectNodes.delay);
+        effectNodes.wetGain.connect(analyser);
+        effectNodes.dryGain.connect(analyser);
         analyser.connect(context.destination);
 
         gainNodesRef.current[track.id] = gain;
-        wahNodesRef.current[track.id] = {
-          filter: wahFilter,
-          wetGain: wahWetGain,
-          dryGain: wahDryGain,
-        };
+        effectNodesRef.current[track.id] = effectNodes;
         analyserNodesRef.current[track.id] = analyser;
         gain.gain.setValueAtTime(
           getEffectiveVolumeFromRefs(track.id, volumesRef.current[track.id]),
           context.currentTime
         );
-        applyWahPosition(track.id, wahPositionsRef.current[track.id] ?? 0.5);
-        setWahPositions((previous) => ({
+        const startingEffect =
+          effectTypesRef.current[track.id] ?? ("wah" as AudioEffectType);
+        const startingValue =
+          effectValuesRef.current[track.id] ?? DEFAULT_EFFECT_VALUE;
+
+        applyEffectValue(track.id, startingValue, startingEffect);
+        setEffectValues((previous) => ({
           ...previous,
-          [track.id]: previous[track.id] ?? 0.5,
+          [track.id]: previous[track.id] ?? DEFAULT_EFFECT_VALUE,
+        }));
+        setEffectTypes((previous) => ({
+          ...previous,
+          [track.id]: previous[track.id] ?? startingEffect,
         }));
 
         setDuration((previous) => {
@@ -660,7 +679,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       isCancelled = true;
     };
   }, [
-    applyWahPosition,
+    applyEffectValue,
     ensureAudioContext,
     getEffectiveVolumeFromRefs,
     inputTrackId,
@@ -833,6 +852,10 @@ export default function Player({ record, onClose }: PlayerProps) {
 
         const source = context.createBufferSource();
         source.buffer = buffer;
+        source.playbackRate.setValueAtTime(
+          getPlaybackRateForTrack(track.id),
+          startAt
+        );
         source.connect(gainNode);
         source.start(startAt, offsetSeconds);
         newSources[track.id] = source;
@@ -842,7 +865,7 @@ export default function Player({ record, onClose }: PlayerProps) {
       startAtCtxTimeRef.current = startAt;
       setIsPlaying(true);
     },
-    [ensureAudioContext, tracks]
+    [ensureAudioContext, getPlaybackRateForTrack, tracks]
   );
 
   const commitSeek = useCallback(
@@ -995,11 +1018,42 @@ export default function Player({ record, onClose }: PlayerProps) {
     applyEffectiveVolume(trackId, value);
   };
 
-  const handleWahChange = (trackId: string, value: number) => {
+  const handleEffectValueChange = (trackId: string, value: number) => {
     const clamped = Math.min(1, Math.max(0, value));
 
-    setWahPositions((previous) => ({ ...previous, [trackId]: clamped }));
-    applyWahPosition(trackId, clamped);
+    setEffectValues((previous) => ({ ...previous, [trackId]: clamped }));
+    applyEffectValue(trackId, clamped);
+    applyPlaybackRateForTrack(
+      trackId,
+      effectTypesRef.current[trackId] ?? "wah",
+      clamped
+    );
+  };
+
+  const handleEffectTypeChange = (
+    trackId: string,
+    effectType: AudioEffectType
+  ) => {
+    setEffectTypes((previous) => ({ ...previous, [trackId]: effectType }));
+    applyEffectValue(trackId, effectValuesRef.current[trackId], effectType);
+    applyPlaybackRateForTrack(
+      trackId,
+      effectType,
+      effectValuesRef.current[trackId]
+    );
+  };
+
+  const handleEffectReset = (trackId: string) => {
+    setEffectValues((previous) => ({
+      ...previous,
+      [trackId]: DEFAULT_EFFECT_VALUE,
+    }));
+    applyEffectValue(trackId, DEFAULT_EFFECT_VALUE);
+    applyPlaybackRateForTrack(
+      trackId,
+      effectTypesRef.current[trackId] ?? "wah",
+      DEFAULT_EFFECT_VALUE
+    );
   };
 
   const toggleTrackMute = (trackId: string) => {
@@ -1174,9 +1228,13 @@ export default function Player({ record, onClose }: PlayerProps) {
             volume={volumes[track.id] ?? 1}
             isMuted={!!trackMuteStates[track.id]}
             isDeafened={!!trackDeafenStates[track.id]}
-            wahValue={wahPositions[track.id] ?? 0.5}
+            effectType={effectTypes[track.id] ?? "wah"}
+            effectValue={effectValues[track.id] ?? DEFAULT_EFFECT_VALUE}
+            effectOptions={audioEffectOptions}
             onVolumeChange={handleVolumeChange}
-            onWahChange={handleWahChange}
+            onEffectValueChange={handleEffectValueChange}
+            onEffectTypeChange={handleEffectTypeChange}
+            onResetEffect={handleEffectReset}
             onToggleMute={toggleTrackMute}
             onToggleDeafen={toggleTrackDeafen}
             registerCanvas={(ref) => {
